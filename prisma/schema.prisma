@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  FDO
+  AMBASSADOR
+  PARTICIPANT
+}
+
+enum RegistrationType {
+  INDIVIDUAL
+  TEAM
+  BOTH
+}
+
+enum EventStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  COMPLETED
+  CANCELLED
+}
+
+enum RegistrationStatus {
+  PENDING
+  INVOICED
+  PAID
+  CONFIRMED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum PaymentVerificationStatus {
+  SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+enum TicketStatus {
+  VALID
+  USED
+  INVALID
+}
+
+// NOTE: User.id is NOT auto-generated. It must always be set explicitly to the
+// Supabase Auth user's UUID (auth.users.id), so the Prisma User row and the
+// Supabase Auth identity always share the same id. See app/(auth)/actions.ts.
+model User {
+  id               String     @id
+  email            String     @unique
+  passwordHash     String?
+  role             Role       @default(PARTICIPANT)
+  isActive         Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  ambassador       Ambassador?
+  fdo              FDO?
+  participant      Participant?
+  verifiedPayments Payment[]  @relation("PaymentVerifiedBy")
+  auditLogs        AuditLog[]
+
+  @@index([role])
+}
+
+model University {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  city        String?
+  createdAt   DateTime     @default(now())
+
+  ambassadors Ambassador[]
+  teams       Team[]
+}
+
+model Ambassador {
+  id             String     @id @default(uuid())
+  userId         String     @unique
+  user           User       @relation(fields: [userId], references: [id])
+  universityId   String
+  university     University @relation(fields: [universityId], references: [id])
+  ambassadorCode String     @unique
+  assignedAt     DateTime   @default(now())
+
+  teams          Team[]
+
+  @@index([universityId])
+}
+
+model FDO {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id])
+  assignedScope Json?
+  createdAt     DateTime @default(now())
+}
+
+model Participant {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  fullName  String
+  phone     String?
+  cnic      String?
+  createdAt DateTime @default(now())
+
+  captainOfTeams  Team[]         @relation("TeamCaptain")
+  teamMemberships TeamMember[]
+  registrations   Registration[]
+}
+
+model Team {
+  id           String      @id @default(uuid())
+  name         String
+  captainId    String
+  captain      Participant @relation("TeamCaptain", fields: [captainId], references: [id])
+  universityId String?
+  university   University? @relation(fields: [universityId], references: [id])
+  ambassadorId String?
+  ambassador   Ambassador? @relation(fields: [ambassadorId], references: [id])
+  eventId      String
+  event        Event       @relation(fields: [eventId], references: [id])
+  createdAt    DateTime    @default(now())
+
+  members       TeamMember[]
+  registrations Registration[]
+
+  @@index([eventId])
+  @@index([universityId])
+  @@index([ambassadorId])
+}
+
+model TeamMember {
+  id            String      @id @default(uuid())
+  teamId        String
+  team          Team        @relation(fields: [teamId], references: [id])
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id])
+
+  @@unique([teamId, participantId])
+  @@index([participantId])
+}
+
+model Event {
+  id               String           @id @default(uuid())
+  name             String           @unique
+  description      String?
+  category         String?
+  registrationFee  Decimal          @db.Decimal(10, 2)
+  prizeMoney       Decimal?         @db.Decimal(10, 2)
+  registrationType RegistrationType
+  minTeamSize      Int?
+  maxTeamSize      Int?
+  deadline         DateTime
+  eventDate        DateTime
+  venue            String?
+  rules            String?
+  status           EventStatus      @default(DRAFT)
+  createdAt        DateTime         @default(now())
+
+  teams         Team[]
+  registrations Registration[]
+
+  @@index([status])
+}
+
+model Registration {
+  id            String             @id @default(uuid())
+  participantId String?
+  participant   Participant?       @relation(fields: [participantId], references: [id])
+  teamId        String?
+  team          Team?              @relation(fields: [teamId], references: [id])
+  eventId       String
+  event         Event              @relation(fields: [eventId], references: [id])
+  status        RegistrationStatus @default(PENDING)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  invoice Invoice?
+  ticket  Ticket?
+
+  @@index([eventId])
+  @@index([status])
+  @@index([participantId])
+  @@index([teamId])
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  registrationId String        @unique
+  registration   Registration  @relation(fields: [registrationId], references: [id])
+  invoiceNumber  String        @unique
+  amount         Decimal       @db.Decimal(10, 2)
+  status         InvoiceStatus @default(PENDING)
+  createdAt      DateTime      @default(now())
+
+  payments Payment[]
+}
+
+model Payment {
+  id                 String                    @id @default(uuid())
+  invoiceId          String
+  invoice            Invoice                   @relation(fields: [invoiceId], references: [id])
+  amount             Decimal                   @db.Decimal(10, 2)
+  method             String
+  referenceNumber    String?
+  proofUrl           String?
+  verificationStatus PaymentVerificationStatus @default(SUBMITTED)
+  verifiedBy         String?
+  verifier           User?                     @relation("PaymentVerifiedBy", fields: [verifiedBy], references: [id])
+  createdAt          DateTime                  @default(now())
+
+  @@index([invoiceId])
+  @@index([verificationStatus])
+}
+
+model Ticket {
+  id             String       @id @default(uuid())
+  registrationId String       @unique
+  registration   Registration @relation(fields: [registrationId], references: [id])
+  ticketCode     String       @unique
+  qrData         String
+  status         TicketStatus @default(VALID)
+  createdAt      DateTime     @default(now())
+}
+
+model Announcement {
+  id          String    @id @default(uuid())
+  title       String
+  body        String
+  isPublished Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@index([isPublished])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  action      String
+  targetTable String
+  targetId    String
+  timestamp   DateTime @default(now())
+  details     Json?
+
+  @@index([userId])
+  @@index([targetTable, targetId])
+}
