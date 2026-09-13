@@ -1,10 +1,22 @@
+'use client';
+
+import { useFormState } from 'react-dom';
 import { signInAction } from '../actions';
 
+const initialState = { error: undefined as string | undefined };
+
 export default function LoginPage() {
+  const [state, formAction] = useFormState(signInAction, initialState);
+
   return (
     <div className="mx-auto mt-24 max-w-sm">
       <h1 className="mb-6 text-2xl font-bold">Log in to KISHWAR</h1>
-      <form action={signInAction} className="flex flex-col gap-4">
+      {state?.error && (
+        <div className="mb-4 rounded bg-red-100 p-3 text-sm text-red-700">
+          {state.error}
+        </div>
+      )}
+      <form action={formAction} className="flex flex-col gap-4">
         <input name="email" type="email" placeholder="Email" required className="rounded border p-2" />
         <input name="password" type="password" placeholder="Password" required className="rounded border p-2" />
         <button type="submit" className="rounded bg-slate-900 p-2 text-white">

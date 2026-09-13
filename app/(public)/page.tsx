@@ -1,10 +1,80 @@
+import Link from 'next/link';
+import { spaceGrotesk } from '@/lib/fonts';
+
+const STATS = [
+  { label: 'Participants', value: '2,000+' },
+  { label: 'Universities', value: '40+' },
+  { label: 'Prize Pool', value: 'PKR 500,000+' },
+  { label: 'Events', value: '30+' },
+];
+
 export default function HomePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white">
-      <h1 className="text-4xl font-bold">KISHWAR</h1>
-      <p className="mt-2 text-slate-300">
-        FAST-NUCES Multan Mega Event Registration & Management System
-      </p>
-    </main>
+    <div className="bg-[#12141C] text-[#F2F0EA]">
+      {/* Hero */}
+      <section className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-6 py-24 md:py-32">
+        <p className="text-sm font-medium uppercase tracking-widest text-[#E8A33D]">
+          FAST-NUCES Multan Presents
+        </p>
+        <h1 className={`${spaceGrotesk.className} text-5xl font-bold leading-tight md:text-7xl`}>
+          KISHWAR
+        </h1>
+        <p className="max-w-xl text-base leading-relaxed text-[#C9C6BD] md:text-lg">
+          A national-level mega event bringing together competitions in computing,
+          business, sports, and social categories — open to universities across Pakistan.
+        </p>
+
+        <div className="mt-2 rounded-sm border border-[#2A2E3A] px-5 py-3">
+          <p className="text-xs uppercase tracking-widest text-[#C9C6BD]">Dates to be announced</p>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <Link
+            href="/signup"
+            className="rounded-sm bg-[#E8A33D] px-6 py-3 text-center text-sm font-medium text-[#12141C] transition-colors duration-150 hover:bg-[#D9922E]"
+          >
+            Register Now
+          </Link>
+          <Link
+            href="/events"
+            className="rounded-sm border border-[#2A2E3A] px-6 py-3 text-center text-sm font-medium text-[#F2F0EA] transition-colors duration-150 hover:border-[#E8A33D] hover:text-[#E8A33D]"
+          >
+            Explore Events
+          </Link>
+        </div>
+      </section>
+
+      {/* Stats */}
+      <section className="border-t border-[#2A2E3A]">
+        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-8 px-6 py-16 md:grid-cols-4">
+          {STATS.map((stat) => (
+            <div key={stat.label} className="flex flex-col gap-1">
+              <p className={`${spaceGrotesk.className} text-3xl font-bold text-[#F2F0EA] md:text-4xl`}>
+                {stat.value}
+              </p>
+              <p className="text-sm text-[#C9C6BD]">{stat.label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* About */}
+      <section className="border-t border-[#2A2E3A]">
+        <div className="mx-auto max-w-6xl px-6 py-20">
+          <p className="text-sm font-medium uppercase tracking-widest text-[#E8A33D]">
+            About KISHWAR
+          </p>
+          <h2 className={`${spaceGrotesk.className} mt-3 max-w-2xl text-3xl font-bold md:text-4xl`}>
+            One event, every discipline.
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-[#C9C6BD]">
+            KISHWAR is FAST-NUCES Multan's flagship mega event, hosting competitions
+            across computing, business, sports, and social categories. Teams from
+            universities nationwide compete, network, and showcase their talent over
+            multiple days of events.
+          </p>
+        </div>
+      </section>
+    </div>
   );
 }

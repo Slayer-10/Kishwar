@@ -11,10 +11,18 @@ const ROLE_HOME: Record<string, string> = {
   PARTICIPANT: '/participant',
 };
 
-export async function signUpAction(formData: FormData) {
+export async function signUpAction(
+  prevState: { error?: string },
+  formData: FormData
+): Promise<{ error?: string }> {
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
   const fullName = String(formData.get('fullName'));
+
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    return { error: 'An account with this email already exists. Please log in instead.' };
+  }
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase.auth.signUp({ email, password });
@@ -24,24 +32,20 @@ export async function signUpAction(formData: FormData) {
   }
 
   await prisma.user.create({
-    data: {
-      id: data.user.id,
-      email,
-      role: 'PARTICIPANT',
-    },
+    data: { id: data.user.id, email, role: 'PARTICIPANT' },
   });
 
   await prisma.participant.create({
-    data: {
-      userId: data.user.id,
-      fullName,
-    },
+    data: { userId: data.user.id, fullName },
   });
 
   redirect('/login');
 }
 
-export async function signInAction(formData: FormData) {
+export async function signInAction(
+  prevState: { error?: string },
+  formData: FormData
+): Promise<{ error?: string }> {
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
 
@@ -56,7 +60,10 @@ export async function signInAction(formData: FormData) {
   redirect(ROLE_HOME[dbUser?.role ?? 'PARTICIPANT']);
 }
 
-export async function forgotPasswordAction(formData: FormData) {
+export async function forgotPasswordAction(
+  prevState: { error?: string; success?: boolean },
+  formData: FormData
+): Promise<{ error?: string; success?: boolean }> {
   const email = String(formData.get('email'));
   const supabase = createSupabaseServerClient();
 
@@ -68,7 +75,10 @@ export async function forgotPasswordAction(formData: FormData) {
   return { success: true };
 }
 
-export async function resetPasswordAction(formData: FormData) {
+export async function resetPasswordAction(
+  prevState: { error?: string },
+  formData: FormData
+): Promise<{ error?: string }> {
   const password = String(formData.get('password'));
   const supabase = createSupabaseServerClient();
 
