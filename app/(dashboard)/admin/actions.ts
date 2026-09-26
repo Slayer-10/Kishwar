@@ -5,6 +5,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { randomUUID } from 'crypto';
 import type { RegistrationType, EventStatus } from '@prisma/client';
 
 async function requireSuperAdmin() {
@@ -118,7 +119,7 @@ export async function updateEventAction(
 }
 
 export async function deleteEventAction(eventId: string) {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin();
 
   const [teamCount, registrationCount] = await Promise.all([
     prisma.team.count({ where: { eventId } }),
@@ -131,7 +132,20 @@ export async function deleteEventAction(eventId: string) {
     );
   }
 
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+
   await prisma.event.delete({ where: { id: eventId } });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: 'DELETE',
+      targetTable: 'Event',
+      targetId: eventId,
+      details: { name: event?.name },
+    },
+  });
+
   revalidatePath('/admin');
 }
 
@@ -159,7 +173,7 @@ export async function createUniversityAction(formData: FormData) {
 }
 
 export async function deleteUniversityAction(universityId: string) {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin();
 
   const [ambassadorCount, teamCount] = await Promise.all([
     prisma.ambassador.count({ where: { universityId } }),
@@ -170,7 +184,20 @@ export async function deleteUniversityAction(universityId: string) {
     throw new Error('This university has ambassadors or teams linked to it and cannot be deleted.');
   }
 
+  const university = await prisma.university.findUnique({ where: { id: universityId } });
+
   await prisma.university.delete({ where: { id: universityId } });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: 'DELETE',
+      targetTable: 'University',
+      targetId: universityId,
+      details: { name: university?.name },
+    },
+  });
+
   revalidatePath('/admin/universities');
 }
 
@@ -205,14 +232,27 @@ export async function togglePublishAnnouncementAction(announcementId: string, is
 }
 
 export async function deleteAnnouncementAction(announcementId: string) {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin();
+
+  const announcement = await prisma.announcement.findUnique({ where: { id: announcementId } });
 
   await prisma.announcement.delete({ where: { id: announcementId } });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: 'DELETE',
+      targetTable: 'Announcement',
+      targetId: announcementId,
+      details: { title: announcement?.title },
+    },
+  });
+
   revalidatePath('/admin/announcements');
 }
 
 export async function createAmbassadorAction(formData: FormData) {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin();
 
   const email = String(formData.get('email') ?? '').trim();
   const password = String(formData.get('password') ?? '');
@@ -263,12 +303,22 @@ export async function createAmbassadorAction(formData: FormData) {
     redirect('/admin/ambassadors?error=Failed to create ambassador record.');
   }
 
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: 'CREATE',
+      targetTable: 'Ambassador',
+      targetId: data.user!.id,
+      details: { email, universityId, ambassadorCode },
+    },
+  });
+
   revalidatePath('/admin/ambassadors');
   redirect('/admin/ambassadors');
 }
 
 export async function deleteAmbassadorAction(ambassadorId: string) {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin();
 
   const ambassador = await prisma.ambassador.findUnique({
     where: { id: ambassadorId },
@@ -288,6 +338,16 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
 
   await prisma.ambassador.delete({ where: { id: ambassadorId } });
   await prisma.user.delete({ where: { id: ambassador.userId } });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: 'DELETE',
+      targetTable: 'Ambassador',
+      targetId: ambassadorId,
+      details: { ambassadorCode: ambassador.ambassadorCode },
+    },
+  });
 
   revalidatePath('/admin/ambassadors');
 }
@@ -311,8 +371,32 @@ export async function verifyPaymentAction(paymentId: string) {
     data: { status: 'CONFIRMED' },
   });
 
+  const generatedTicketCode = `TCK-${randomUUID().slice(0, 8).toUpperCase()}`;
+
+  await prisma.ticket.upsert({
+    where: { registrationId: payment.invoice.registrationId },
+    create: {
+      registrationId: payment.invoice.registrationId,
+      ticketCode: generatedTicketCode,
+      qrData: generatedTicketCode,
+      status: 'VALID',
+    },
+    update: {},
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: 'VERIFY',
+      targetTable: 'Payment',
+      targetId: paymentId,
+      details: { amount: payment.amount.toString(), method: payment.method },
+    },
+  });
+
   revalidatePath('/admin/payments');
   revalidatePath('/participant/payments');
+  revalidatePath('/participant/tickets');
 }
 
 export async function rejectPaymentAction(paymentId: string) {
@@ -327,6 +411,16 @@ export async function rejectPaymentAction(paymentId: string) {
   await prisma.registration.update({
     where: { id: payment.invoice.registrationId },
     data: { status: 'INVOICED' },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: 'REJECT',
+      targetTable: 'Payment',
+      targetId: paymentId,
+      details: { amount: payment.amount.toString(), method: payment.method },
+    },
   });
 
   revalidatePath('/admin/payments');

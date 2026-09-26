@@ -4,6 +4,7 @@ import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 
 const NAV_ITEMS = [
   { label: 'Assigned Events', href: '/fdo' },
+  { label: 'Check-In', href: '/fdo/checkin' },
   { label: 'Registrations', href: '/fdo/registrations' },
   { label: 'Payments', href: '/fdo/payments' },
 ];
