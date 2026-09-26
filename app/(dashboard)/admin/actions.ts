@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { RegistrationType, EventStatus } from '@prisma/client';
@@ -209,4 +210,86 @@ export async function deleteAnnouncementAction(announcementId: string) {
   await prisma.announcement.delete({ where: { id: announcementId } });
   revalidatePath('/admin/announcements');
 }
+
+export async function createAmbassadorAction(formData: FormData) {
+  await requireSuperAdmin();
+
+  const email = String(formData.get('email') ?? '').trim();
+  const password = String(formData.get('password') ?? '');
+  const universityId = String(formData.get('universityId') ?? '');
+  const ambassadorCode = String(formData.get('ambassadorCode') ?? '').trim();
+
+  if (!email || !password || !universityId || !ambassadorCode) {
+    redirect('/admin/ambassadors?error=All fields are required.');
+  }
+  if (password.length < 8) {
+    redirect('/admin/ambassadors?error=Password must be at least 8 characters.');
+  }
+
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    redirect('/admin/ambassadors?error=A user with this email already exists.');
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient();
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+
+  if (error || !data.user) {
+    redirect(`/admin/ambassadors?error=${encodeURIComponent(error?.message ?? 'Failed to create account.')}`);
+  }
+
+  try {
+    await prisma.user.create({
+      data: { id: data.user!.id, email, role: 'AMBASSADOR' },
+    });
+
+    await prisma.ambassador.create({
+      data: {
+        userId: data.user!.id,
+        universityId,
+        ambassadorCode,
+      },
+    });
+  } catch (err: any) {
+    await supabaseAdmin.auth.admin.deleteUser(data.user!.id);
+
+    if (err.code === 'P2002') {
+      redirect('/admin/ambassadors?error=This ambassador code is already in use.');
+    }
+    redirect('/admin/ambassadors?error=Failed to create ambassador record.');
+  }
+
+  revalidatePath('/admin/ambassadors');
+  redirect('/admin/ambassadors');
+}
+
+export async function deleteAmbassadorAction(ambassadorId: string) {
+  await requireSuperAdmin();
+
+  const ambassador = await prisma.ambassador.findUnique({
+    where: { id: ambassadorId },
+    include: { _count: { select: { teams: true } } },
+  });
+
+  if (!ambassador) {
+    throw new Error('Ambassador not found.');
+  }
+
+  if (ambassador._count.teams > 0) {
+    throw new Error('This ambassador has teams linked to them and cannot be deleted.');
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient();
+  await supabaseAdmin.auth.admin.deleteUser(ambassador.userId);
+
+  await prisma.ambassador.delete({ where: { id: ambassadorId } });
+  await prisma.user.delete({ where: { id: ambassador.userId } });
+
+  revalidatePath('/admin/ambassadors');
+}
+
 
