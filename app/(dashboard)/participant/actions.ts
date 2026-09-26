@@ -128,3 +128,113 @@ export async function submitPaymentAction(formData: FormData) {
   revalidatePath('/participant/payments');
   redirect('/participant/payments');
 }
+
+export async function registerTeamAction(eventId: string, formData: FormData) {
+  const user = await requireParticipant();
+
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) {
+    throw new Error('Event not found.');
+  }
+  if (event.status !== 'OPEN') {
+    throw new Error('This event is not open for registration.');
+  }
+  if (event.deadline < new Date()) {
+    throw new Error('The registration deadline for this event has passed.');
+  }
+  if (event.registrationType === 'INDIVIDUAL') {
+    throw new Error('This event only accepts individual registration.');
+  }
+
+  const teamName = String(formData.get('teamName') ?? '').trim();
+  const memberEmails = formData.getAll('memberEmails')
+    .map((e) => String(e).trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!teamName) {
+    throw new Error('Team name is required.');
+  }
+
+  const existingOwnReg = await prisma.registration.findFirst({
+    where: {
+      eventId,
+      OR: [
+        { participantId: user.participant!.id },
+        { team: { captainId: user.participant!.id } },
+        { team: { members: { some: { participantId: user.participant!.id } } } },
+      ],
+    },
+  });
+  if (existingOwnReg) {
+    throw new Error('You are already registered for this event.');
+  }
+
+  const memberParticipants = memberEmails.length > 0
+    ? await prisma.participant.findMany({
+        where: { user: { email: { in: memberEmails } } },
+        include: { user: true },
+      })
+    : [];
+
+  if (memberParticipants.length !== memberEmails.length) {
+    throw new Error('One or more teammate emails could not be found. They must already have an account.');
+  }
+
+  const memberIds = memberParticipants.map((p) => p.id);
+  if (memberIds.includes(user.participant!.id)) {
+    throw new Error('You cannot list yourself as a teammate.');
+  }
+
+  const totalSize = 1 + memberIds.length;
+  if (event.minTeamSize && totalSize < event.minTeamSize) {
+    throw new Error(`This event requires at least ${event.minTeamSize} members, including you.`);
+  }
+  if (event.maxTeamSize && totalSize > event.maxTeamSize) {
+    throw new Error(`This event allows at most ${event.maxTeamSize} members, including you.`);
+  }
+
+  if (memberIds.length > 0) {
+    const conflicting = await prisma.registration.findFirst({
+      where: {
+        eventId,
+        OR: [
+          { participantId: { in: memberIds } },
+          { team: { captainId: { in: memberIds } } },
+          { team: { members: { some: { participantId: { in: memberIds } } } } },
+        ],
+      },
+    });
+    if (conflicting) {
+      throw new Error('One or more teammates are already registered for this event.');
+    }
+  }
+
+  const team = await prisma.team.create({
+    data: {
+      name: teamName,
+      captainId: user.participant!.id,
+      eventId,
+      members: {
+        create: [{ participantId: user.participant!.id }, ...memberIds.map((id) => ({ participantId: id }))],
+      },
+    },
+  });
+
+  const registration = await prisma.registration.create({
+    data: { eventId, teamId: team.id },
+  });
+
+  await prisma.invoice.create({
+    data: {
+      registrationId: registration.id,
+      invoiceNumber: `INV-${randomUUID().slice(0, 8).toUpperCase()}`,
+      amount: event.registrationFee,
+    },
+  });
+
+  revalidatePath('/participant');
+  revalidatePath('/participant/payments');
+  revalidatePath(`/events/${eventId}`);
+  redirect('/participant');
+}
+

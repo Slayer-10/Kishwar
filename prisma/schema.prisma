@@ -113,6 +113,7 @@ model Participant {
   userId    String   @unique
   user      User     @relation(fields: [userId], references: [id])
   fullName  String
+  email     String   @unique
   phone     String?
   cnic      String?
   createdAt DateTime @default(now())

@@ -31,13 +31,14 @@ export async function signUpAction(
     return { error: error?.message ?? 'Sign up failed' };
   }
 
-  await prisma.user.create({
-    data: { id: data.user.id, email, role: 'PARTICIPANT' },
-  });
-
-  await prisma.participant.create({
-    data: { userId: data.user.id, fullName },
-  });
+  await prisma.$transaction([
+    prisma.user.create({
+      data: { id: data.user.id, email, role: 'PARTICIPANT' },
+    }),
+    prisma.participant.create({
+      data: { userId: data.user.id, fullName, email },
+    }),
+  ]);
 
   redirect('/login');
 }

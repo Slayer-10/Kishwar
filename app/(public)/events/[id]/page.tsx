@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { spaceGrotesk } from '@/lib/fonts';
 import { RegisterButton } from '@/components/public/register-button';
+import { TeamRegisterForm } from '@/components/public/team-register-form';
 
 const STATUS_STYLES: Record<string, string> = {
   OPEN: 'border-[#E8A33D] text-[#E8A33D]',
@@ -90,10 +91,8 @@ export default async function PublicEventDetailPage({ params }: { params: { id: 
         {event.status === 'OPEN' && event.registrationType !== 'TEAM' && (
           <RegisterButton eventId={event.id} />
         )}
-        {event.status === 'OPEN' && event.registrationType === 'TEAM' && (
-          <p className="mt-8 text-sm text-[#C9C6BD]">
-            This event requires a team to register, which isn't available yet.
-          </p>
+        {event.status === 'OPEN' && event.registrationType !== 'INDIVIDUAL' && (
+          <TeamRegisterForm eventId={event.id} minTeamSize={event.minTeamSize} maxTeamSize={event.maxTeamSize} />
         )}
       </div>
     </div>
