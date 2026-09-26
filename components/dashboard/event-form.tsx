@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useFormState } from 'react-dom';
 
 type EventFormState = { error?: string };
 
@@ -27,7 +27,7 @@ type EventFormProps = {
 const initialState: EventFormState = { error: undefined };
 
 export function EventForm({ action, submitLabel, initialValues = {} }: EventFormProps) {
-  const [state, formAction] = useActionState(action, initialState);
+  const [state, formAction] = useFormState(action, initialState);
 
   return (
     <form action={formAction} className="flex max-w-2xl flex-col gap-4">
