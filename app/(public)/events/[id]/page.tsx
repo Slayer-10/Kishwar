@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { spaceGrotesk } from '@/lib/fonts';
+import { RegisterButton } from '@/components/public/register-button';
 
 const STATUS_STYLES: Record<string, string> = {
   OPEN: 'border-[#E8A33D] text-[#E8A33D]',
@@ -84,6 +85,15 @@ export default async function PublicEventDetailPage({ params }: { params: { id: 
             <h2 className={`${spaceGrotesk.className} text-lg font-bold text-[#F2F0EA]`}>Rules</h2>
             <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[#C9C6BD]">{event.rules}</p>
           </div>
+        )}
+
+        {event.status === 'OPEN' && event.registrationType !== 'TEAM' && (
+          <RegisterButton eventId={event.id} />
+        )}
+        {event.status === 'OPEN' && event.registrationType === 'TEAM' && (
+          <p className="mt-8 text-sm text-[#C9C6BD]">
+            This event requires a team to register, which isn't available yet.
+          </p>
         )}
       </div>
     </div>
