@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { randomUUID } from 'crypto';
 
 async function requireParticipant() {
   const user = await getCurrentUser();
@@ -43,21 +44,33 @@ export async function registerForEventAction(eventId: string) {
     throw new Error('You are already registered for this event.');
   }
 
-  await prisma.registration.create({
+  const registration = await prisma.registration.create({
     data: {
       eventId,
       participantId: user.participant!.id,
     },
   });
 
+  await prisma.invoice.create({
+    data: {
+      registrationId: registration.id,
+      invoiceNumber: `INV-${randomUUID().slice(0, 8).toUpperCase()}`,
+      amount: event.registrationFee,
+    },
+  });
+
   revalidatePath('/participant');
+  revalidatePath('/participant/payments');
   revalidatePath(`/events/${eventId}`);
 }
 
 export async function cancelRegistrationAction(registrationId: string) {
   const user = await requireParticipant();
 
-  const registration = await prisma.registration.findUnique({ where: { id: registrationId } });
+  const registration = await prisma.registration.findUnique({
+    where: { id: registrationId },
+    include: { invoice: { include: { payments: true } } },
+  });
 
   if (!registration || registration.participantId !== user.participant!.id) {
     throw new Error('Registration not found.');
@@ -65,7 +78,53 @@ export async function cancelRegistrationAction(registrationId: string) {
   if (registration.status !== 'PENDING') {
     throw new Error('This registration can no longer be cancelled.');
   }
+  if (registration.invoice && registration.invoice.payments.length > 0) {
+    throw new Error('A payment has already been submitted for this registration and it can no longer be cancelled.');
+  }
 
+  if (registration.invoice) {
+    await prisma.invoice.delete({ where: { id: registration.invoice.id } });
+  }
   await prisma.registration.delete({ where: { id: registrationId } });
+
   revalidatePath('/participant');
+  revalidatePath('/participant/payments');
+}
+
+export async function submitPaymentAction(formData: FormData) {
+  const user = await requireParticipant();
+
+  const invoiceId = String(formData.get('invoiceId') ?? '');
+  const method = String(formData.get('method') ?? '').trim();
+  const referenceNumber = String(formData.get('referenceNumber') ?? '').trim() || null;
+  const proofUrl = String(formData.get('proofUrl') ?? '').trim() || null;
+
+  if (!invoiceId || !method) {
+    redirect('/participant/payments?error=Payment method is required.');
+  }
+
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { registration: true },
+  });
+
+  if (!invoice || invoice.registration.participantId !== user.participant!.id) {
+    redirect('/participant/payments?error=Invoice not found.');
+  }
+  if (invoice.status === 'PAID') {
+    redirect('/participant/payments?error=This invoice has already been paid.');
+  }
+
+  await prisma.payment.create({
+    data: {
+      invoiceId: invoice.id,
+      amount: invoice.amount,
+      method,
+      referenceNumber,
+      proofUrl,
+    },
+  });
+
+  revalidatePath('/participant/payments');
+  redirect('/participant/payments');
 }
