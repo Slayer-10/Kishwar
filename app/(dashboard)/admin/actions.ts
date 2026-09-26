@@ -292,4 +292,46 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
   revalidatePath('/admin/ambassadors');
 }
 
+export async function verifyPaymentAction(paymentId: string) {
+  const admin = await requireSuperAdmin();
+
+  const payment = await prisma.payment.update({
+    where: { id: paymentId },
+    data: { verificationStatus: 'VERIFIED', verifiedBy: admin.id },
+    include: { invoice: true },
+  });
+
+  await prisma.invoice.update({
+    where: { id: payment.invoiceId },
+    data: { status: 'PAID' },
+  });
+
+  await prisma.registration.update({
+    where: { id: payment.invoice.registrationId },
+    data: { status: 'CONFIRMED' },
+  });
+
+  revalidatePath('/admin/payments');
+  revalidatePath('/participant/payments');
+}
+
+export async function rejectPaymentAction(paymentId: string) {
+  const admin = await requireSuperAdmin();
+
+  const payment = await prisma.payment.update({
+    where: { id: paymentId },
+    data: { verificationStatus: 'REJECTED', verifiedBy: admin.id },
+    include: { invoice: true },
+  });
+
+  await prisma.registration.update({
+    where: { id: payment.invoice.registrationId },
+    data: { status: 'INVOICED' },
+  });
+
+  revalidatePath('/admin/payments');
+  revalidatePath('/participant/payments');
+}
+
+
 
