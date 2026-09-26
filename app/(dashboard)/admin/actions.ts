@@ -133,3 +133,80 @@ export async function deleteEventAction(eventId: string) {
   await prisma.event.delete({ where: { id: eventId } });
   revalidatePath('/admin');
 }
+
+export async function createUniversityAction(formData: FormData) {
+  await requireSuperAdmin();
+
+  const name = String(formData.get('name') ?? '').trim();
+  const city = String(formData.get('city') ?? '').trim() || null;
+
+  if (!name) {
+    redirect('/admin/universities?error=University name is required.');
+  }
+
+  try {
+    await prisma.university.create({ data: { name, city } });
+  } catch (err: any) {
+    if (err.code === 'P2002') {
+      redirect('/admin/universities?error=A university with this name already exists.');
+    }
+    redirect('/admin/universities?error=Failed to create university.');
+  }
+
+  revalidatePath('/admin/universities');
+  redirect('/admin/universities');
+}
+
+export async function deleteUniversityAction(universityId: string) {
+  await requireSuperAdmin();
+
+  const [ambassadorCount, teamCount] = await Promise.all([
+    prisma.ambassador.count({ where: { universityId } }),
+    prisma.team.count({ where: { universityId } }),
+  ]);
+
+  if (ambassadorCount > 0 || teamCount > 0) {
+    throw new Error('This university has ambassadors or teams linked to it and cannot be deleted.');
+  }
+
+  await prisma.university.delete({ where: { id: universityId } });
+  revalidatePath('/admin/universities');
+}
+
+export async function createAnnouncementAction(formData: FormData) {
+  await requireSuperAdmin();
+
+  const title = String(formData.get('title') ?? '').trim();
+  const body = String(formData.get('body') ?? '').trim();
+
+  if (!title) {
+    redirect('/admin/announcements?error=Title is required.');
+  }
+  if (!body) {
+    redirect('/admin/announcements?error=Body is required.');
+  }
+
+  await prisma.announcement.create({ data: { title, body } });
+
+  revalidatePath('/admin/announcements');
+  redirect('/admin/announcements');
+}
+
+export async function togglePublishAnnouncementAction(announcementId: string, isPublished: boolean) {
+  await requireSuperAdmin();
+
+  await prisma.announcement.update({
+    where: { id: announcementId },
+    data: { isPublished, publishedAt: isPublished ? new Date() : null },
+  });
+
+  revalidatePath('/admin/announcements');
+}
+
+export async function deleteAnnouncementAction(announcementId: string) {
+  await requireSuperAdmin();
+
+  await prisma.announcement.delete({ where: { id: announcementId } });
+  revalidatePath('/admin/announcements');
+}
+
