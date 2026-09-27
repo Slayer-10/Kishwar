@@ -92,7 +92,12 @@ export default async function PublicEventDetailPage({ params }: { params: { id: 
           <RegisterButton eventId={event.id} />
         )}
         {event.status === 'OPEN' && event.registrationType !== 'INDIVIDUAL' && (
-          <TeamRegisterForm eventId={event.id} minTeamSize={event.minTeamSize} maxTeamSize={event.maxTeamSize} />
+          <TeamRegisterForm
+            eventId={event.id}
+            minTeamSize={event.minTeamSize}
+            maxTeamSize={event.maxTeamSize}
+            universities={await prisma.university.findMany({ orderBy: { name: 'asc' } })}
+          />
         )}
       </div>
     </div>

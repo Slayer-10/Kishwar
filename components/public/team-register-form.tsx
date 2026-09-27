@@ -8,10 +8,12 @@ export function TeamRegisterForm({
   eventId,
   minTeamSize,
   maxTeamSize,
+  universities,
 }: {
   eventId: string;
   minTeamSize: number | null;
   maxTeamSize: number | null;
+  universities: { id: string; name: string }[];
 }) {
   const lower = minTeamSize ?? 1;
   const upper = maxTeamSize ?? Math.max(lower, 10);
@@ -34,6 +36,21 @@ export function TeamRegisterForm({
           required
           className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
         />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">Your University</label>
+        <select
+          name="universityId"
+          required
+          defaultValue=""
+          className="w-full rounded-sm border border-[#2A2E3A] bg-[#12141C] p-2 text-sm text-[#F2F0EA]"
+        >
+          <option value="" disabled>Select university</option>
+          {universities.map((u) => (
+            <option key={u.id} value={u.id}>{u.name}</option>
+          ))}
+        </select>
       </div>
 
       <div>

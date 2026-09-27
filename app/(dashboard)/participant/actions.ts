@@ -147,12 +147,21 @@ export async function registerTeamAction(eventId: string, formData: FormData) {
   }
 
   const teamName = String(formData.get('teamName') ?? '').trim();
+  const universityId = String(formData.get('universityId') ?? '').trim();
   const memberEmails = formData.getAll('memberEmails')
     .map((e) => String(e).trim().toLowerCase())
     .filter(Boolean);
 
   if (!teamName) {
     throw new Error('Team name is required.');
+  }
+  if (!universityId) {
+    throw new Error('University is required.');
+  }
+
+  const university = await prisma.university.findUnique({ where: { id: universityId } });
+  if (!university) {
+    throw new Error('Selected university not found.');
   }
 
   const existingOwnReg = await prisma.registration.findFirst({
@@ -209,11 +218,15 @@ export async function registerTeamAction(eventId: string, formData: FormData) {
     }
   }
 
+  const ambassador = await prisma.ambassador.findFirst({ where: { universityId } });
+
   const team = await prisma.team.create({
     data: {
       name: teamName,
       captainId: user.participant!.id,
       eventId,
+      universityId,
+      ambassadorId: ambassador?.id,
       members: {
         create: [{ participantId: user.participant!.id }, ...memberIds.map((id) => ({ participantId: id }))],
       },
