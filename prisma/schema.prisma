@@ -55,9 +55,12 @@ enum TicketStatus {
   INVALID
 }
 
-// NOTE: User.id is NOT auto-generated. It must always be set explicitly to the
-// Supabase Auth user's UUID (auth.users.id), so the Prisma User row and the
-// Supabase Auth identity always share the same id. See app/(auth)/actions.ts.
+enum AmbassadorRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id               String     @id
   email            String     @unique
@@ -72,6 +75,8 @@ model User {
   participant      Participant?
   verifiedPayments Payment[]  @relation("PaymentVerifiedBy")
   auditLogs        AuditLog[]
+
+  ambassadorRequests AmbassadorRequest[] @relation("AmbassadorRequestReviewer")
 
   @@index([role])
 }
@@ -96,6 +101,7 @@ model Ambassador {
   assignedAt     DateTime   @default(now())
 
   teams          Team[]
+  registrations  Registration[]
 
   @@index([universityId])
 }
@@ -118,9 +124,25 @@ model Participant {
   cnic      String?
   createdAt DateTime @default(now())
 
-  captainOfTeams  Team[]         @relation("TeamCaptain")
+  captainOfTeams  Team[]               @relation("TeamCaptain")
   teamMemberships TeamMember[]
   registrations   Registration[]
+  ambassadorRequests AmbassadorRequest[]
+}
+
+model AmbassadorRequest {
+  id            String                  @id @default(uuid())
+  participantId String
+  participant   Participant             @relation(fields: [participantId], references: [id])
+  reviewedById  String?
+  reviewedBy    User?                   @relation("AmbassadorRequestReviewer", fields: [reviewedById], references: [id])
+  status        AmbassadorRequestStatus @default(PENDING)
+  message       String?
+  createdAt     DateTime                @default(now())
+  reviewedAt    DateTime?
+
+  @@index([participantId])
+  @@index([status])
 }
 
 model Team {
@@ -186,6 +208,10 @@ model Registration {
   team          Team?              @relation(fields: [teamId], references: [id])
   eventId       String
   event         Event              @relation(fields: [eventId], references: [id])
+
+  ambassadorId  String?
+  ambassador    Ambassador?        @relation(fields: [ambassadorId], references: [id])
+
   status        RegistrationStatus @default(PENDING)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
@@ -197,6 +223,7 @@ model Registration {
   @@index([status])
   @@index([participantId])
   @@index([teamId])
+  @@index([ambassadorId])
 }
 
 model Invoice {

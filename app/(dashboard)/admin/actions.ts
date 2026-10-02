@@ -422,10 +422,161 @@ export async function rejectPaymentAction(paymentId: string) {
       details: { amount: payment.amount.toString(), method: payment.method },
     },
   });
-
-  revalidatePath('/admin/payments');
-  revalidatePath('/participant/payments');
 }
+
+export async function approveAmbassadorRequestAction(
+  formData: FormData
+) {
+  const admin = await getCurrentUser();
+
+  if (!admin || admin.role !== 'SUPER_ADMIN') {
+    throw new Error('Only Super Admin can approve Ambassador requests.');
+  }
+
+  const requestId = String(
+    formData.get('requestId') ?? ''
+  ).trim();
+
+  const universityId = String(
+    formData.get('universityId') ?? ''
+  ).trim();
+
+  const ambassadorCode = String(
+    formData.get('ambassadorCode') ?? ''
+  ).trim();
+
+  if (!requestId || !universityId || !ambassadorCode) {
+    throw new Error(
+      'Request, university, and Ambassador code are required.'
+    );
+  }
+
+  const request = await prisma.ambassadorRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      participant: {
+        include: {
+          user: true,
+        },
+      },
+    },
+  });
+
+  if (!request) {
+    throw new Error('Ambassador request not found.');
+  }
+
+  if (request.status !== 'PENDING') {
+    throw new Error('This request has already been reviewed.');
+  }
+
+  const university = await prisma.university.findUnique({
+    where: { id: universityId },
+  });
+
+  if (!university) {
+    throw new Error('University not found.');
+  }
+
+  const existingAmbassador = await prisma.ambassador.findUnique({
+    where: {
+      userId: request.participant.userId,
+    },
+  });
+
+  if (existingAmbassador) {
+    throw new Error('This participant is already an Ambassador.');
+  }
+
+  const existingCode = await prisma.ambassador.findUnique({
+    where: {
+      ambassadorCode,
+    },
+  });
+
+  if (existingCode) {
+    throw new Error('That Ambassador code is already in use.');
+  }
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: {
+        id: request.participant.userId,
+      },
+      data: {
+        role: 'AMBASSADOR',
+      },
+    }),
+
+    prisma.ambassador.create({
+      data: {
+        userId: request.participant.userId,
+        universityId,
+        ambassadorCode,
+      },
+    }),
+
+    prisma.ambassadorRequest.update({
+      where: {
+        id: request.id,
+      },
+      data: {
+        status: 'APPROVED',
+        reviewedById: admin.id,
+        reviewedAt: new Date(),
+      },
+    }),
+  ]);
+
+  revalidatePath('/admin/ambassador-requests');
+  revalidatePath('/admin/ambassadors');
+}
+
+export async function rejectAmbassadorRequestAction(
+  formData: FormData
+) {
+  const admin = await getCurrentUser();
+
+  if (!admin || admin.role !== 'SUPER_ADMIN') {
+    throw new Error('Only Super Admin can reject Ambassador requests.');
+  }
+
+  const requestId = String(
+    formData.get('requestId') ?? ''
+  ).trim();
+
+  if (!requestId) {
+    throw new Error('Request ID is required.');
+  }
+
+  const request = await prisma.ambassadorRequest.findUnique({
+    where: {
+      id: requestId,
+    },
+  });
+
+  if (!request) {
+    throw new Error('Ambassador request not found.');
+  }
+
+  if (request.status !== 'PENDING') {
+    throw new Error('This request has already been reviewed.');
+  }
+
+  await prisma.ambassadorRequest.update({
+    where: {
+      id: requestId,
+    },
+    data: {
+      status: 'REJECTED',
+      reviewedById: admin.id,
+      reviewedAt: new Date(),
+    },
+  });
+
+  revalidatePath('/admin/ambassador-requests');
+}
+
 
 
 

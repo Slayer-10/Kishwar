@@ -1,5 +1,5 @@
+import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { createAmbassadorAction } from '@/app/(dashboard)/admin/actions';
 import { DeleteAmbassadorButton } from '@/components/dashboard/delete-ambassador-button';
 
 export default async function AdminAmbassadorsPage({
@@ -7,38 +7,34 @@ export default async function AdminAmbassadorsPage({
 }: {
   searchParams: { error?: string };
 }) {
-  const [ambassadors, universities] = await Promise.all([
-    prisma.ambassador.findMany({
-      orderBy: { assignedAt: 'desc' },
-      include: { user: true, university: true },
-    }),
-    prisma.university.findMany({ orderBy: { name: 'asc' } }),
-  ]);
+  const ambassadors = await prisma.ambassador.findMany({
+    orderBy: { assignedAt: 'desc' },
+    include: { user: true, university: true },
+  });
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Ambassadors</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Ambassadors</h1>
+        <Link
+          href="/admin/ambassador-requests"
+          className="rounded bg-slate-900 px-4 py-2 text-sm text-white"
+        >
+          Review Ambassador Requests
+        </Link>
+      </div>
 
       {searchParams.error && (
         <div className="mb-4 rounded bg-red-100 p-3 text-sm text-red-700">{searchParams.error}</div>
       )}
 
-      <form action={createAmbassadorAction} className="mb-8 flex max-w-2xl flex-col gap-3">
-        <input name="email" type="email" placeholder="Email address" required className="rounded border p-2" />
-        <input name="password" type="password" placeholder="Password (min 8 characters)" required className="rounded border p-2" />
-        <select name="universityId" required className="rounded border p-2">
-          <option value="">Select University</option>
-          {universities.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name} {u.city ? `(${u.city})` : ''}
-            </option>
-          ))}
-        </select>
-        <input name="ambassadorCode" type="text" placeholder="Ambassador Code" required className="rounded border p-2" />
-        <button type="submit" className="w-fit rounded bg-slate-900 px-4 py-2 text-white">
-          Create Ambassador Account
-        </button>
-      </form>
+      <div className="mb-8 rounded border p-4 bg-slate-50 text-sm text-slate-600">
+        New Ambassadors are created by reviewing and approving participant requests on the{' '}
+        <Link href="/admin/ambassador-requests" className="font-semibold text-slate-900 underline">
+          Ambassador Requests
+        </Link>{' '}
+        page.
+      </div>
 
       <table className="w-full border-collapse text-sm">
         <thead>
@@ -63,7 +59,7 @@ export default async function AdminAmbassadorsPage({
           {ambassadors.length === 0 && (
             <tr>
               <td colSpan={4} className="p-4 text-center text-slate-500">
-                No ambassadors yet. Add the first one above.
+                No ambassadors yet.
               </td>
             </tr>
           )}
