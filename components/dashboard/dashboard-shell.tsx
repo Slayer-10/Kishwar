@@ -40,8 +40,16 @@ export function DashboardShell({
       </aside>
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b p-4">
-          <div className="text-sm text-slate-500">
-            {userName} · <span className="font-medium">{userRole}</span>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className="rounded border px-3 py-2 text-sm font-medium"
+            >
+              KISHWAR Home
+            </Link>
+            <div className="text-sm text-slate-500">
+              {userName} · <span className="font-medium">{userRole}</span>
+            </div>
           </div>
           <button
             onClick={handleLogout}

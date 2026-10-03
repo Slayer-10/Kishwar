@@ -1,51 +1,39 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
-import { requestAmbassadorAction } from './actions';
 import { CancelRegistrationButton } from '@/components/dashboard/cancel-registration-button';
 
 export default async function ParticipantHomePage() {
   const user = await getCurrentUser();
 
-  const [registrations, ambassadorRequest] = await Promise.all([
-    prisma.registration.findMany({
-      where: {
-        OR: [
-          { participantId: user!.participant!.id },
-          {
-            team: {
-              members: {
-                some: {
-                  participantId: user!.participant!.id,
-                },
+  const registrations = await prisma.registration.findMany({
+    where: {
+      OR: [
+        { participantId: user!.participant!.id },
+        {
+          team: {
+            members: {
+              some: {
+                participantId: user!.participant!.id,
               },
             },
           },
-        ],
-      },
-      include: {
-        event: true,
-        ambassador: {
-          include: {
-            user: true,
-            university: true,
-          },
+        },
+      ],
+    },
+    include: {
+      event: true,
+      ambassador: {
+        include: {
+          user: true,
+          university: true,
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    }),
-
-    prisma.ambassadorRequest.findFirst({
-      where: {
-        participantId: user!.participant!.id,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    }),
-  ]);
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
 
   return (
     <div className="space-y-10">
@@ -56,53 +44,14 @@ export default async function ParticipantHomePage() {
         </p>
       </section>
 
-      <section className="rounded border p-6">
-        <h2 className="text-lg font-semibold">
+      <div>
+        <Link
+          href="/participant/ambassador-application"
+          className="inline-block rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+        >
           Become a KISHWAR Ambassador
-        </h2>
-
-        <p className="mt-2 text-sm text-slate-500">
-          Ambassadors are authorized to register participants and teams
-          for KISHWAR events.
-        </p>
-
-        {!ambassadorRequest && (
-          <form action={requestAmbassadorAction} className="mt-4">
-            <textarea
-              name="message"
-              placeholder="Optional message for the Super Admin"
-              className="mb-3 w-full rounded border p-2"
-              rows={3}
-            />
-
-            <button
-              type="submit"
-              className="rounded bg-slate-900 px-4 py-2 text-white"
-            >
-              Request Ambassador Status
-            </button>
-          </form>
-        )}
-
-        {ambassadorRequest?.status === 'PENDING' && (
-          <p className="mt-4 text-sm text-amber-700">
-            Your Ambassador request is pending Super Admin review.
-          </p>
-        )}
-
-        {ambassadorRequest?.status === 'REJECTED' && (
-          <p className="mt-4 text-sm text-red-700">
-            Your previous Ambassador request was rejected. You may submit
-            a new request.
-          </p>
-        )}
-
-        {ambassadorRequest?.status === 'APPROVED' && (
-          <p className="mt-4 text-sm text-green-700">
-            Your Ambassador request was approved.
-          </p>
-        )}
-      </section>
+        </Link>
+      </div>
 
       <section>
         <h2 className="mb-6 text-xl font-bold">My Registrations</h2>

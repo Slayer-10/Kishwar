@@ -11,22 +11,34 @@ export default async function AmbassadorHomePage() {
 
   const [teams, individualRegistrations] = await Promise.all([
     prisma.team.findMany({
-      where: { ambassadorId: user!.ambassador!.id },
+      where: {
+        ambassadorId: user!.ambassador!.id,
+      },
       include: {
         event: true,
         captain: true,
-        members: { include: { participant: true } },
+        members: {
+          include: {
+            participant: true,
+          },
+        },
         registrations: {
           include: {
             invoice: {
               include: {
-                payments: { orderBy: { createdAt: 'desc' } },
+                payments: {
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                },
               },
             },
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: {
+        createdAt: 'desc',
+      },
     }),
 
     prisma.registration.findMany({
@@ -39,11 +51,17 @@ export default async function AmbassadorHomePage() {
         participant: true,
         invoice: {
           include: {
-            payments: { orderBy: { createdAt: 'desc' } },
+            payments: {
+              orderBy: {
+                createdAt: 'desc',
+              },
+            },
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: {
+        createdAt: 'desc',
+      },
     }),
   ]);
 
@@ -52,6 +70,29 @@ export default async function AmbassadorHomePage() {
       <div>
         <h1 className="mb-1 text-2xl font-bold">Ambassador Dashboard</h1>
         <p className="text-sm text-slate-500">{ambassador?.university.name} ({ambassador?.ambassadorCode})</p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded border p-4">
+          <p className="text-sm text-slate-500">Individual Registrations</p>
+          <p className="mt-1 text-2xl font-bold">
+            {individualRegistrations.length}
+          </p>
+        </div>
+
+        <div className="rounded border p-4">
+          <p className="text-sm text-slate-500">Team Registrations</p>
+          <p className="mt-1 text-2xl font-bold">
+            {teams.length}
+          </p>
+        </div>
+
+        <div className="rounded border p-4">
+          <p className="text-sm text-slate-500">Total Registrations</p>
+          <p className="mt-1 text-2xl font-bold">
+            {individualRegistrations.length + teams.length}
+          </p>
+        </div>
       </div>
 
       <section>
@@ -76,7 +117,7 @@ export default async function AmbassadorHomePage() {
                 </div>
 
                 {latestPayment && (
-                  <p className="mt-2 text-xs text-slate-500 border-t pt-2">
+                  <p className="mt-2 border-t pt-2 text-xs text-slate-500">
                     Latest payment: {latestPayment.method} — {latestPayment.verificationStatus}
                   </p>
                 )}
@@ -85,7 +126,7 @@ export default async function AmbassadorHomePage() {
           })}
 
           {individualRegistrations.length === 0 && (
-            <p className="text-sm text-slate-500">No individual registrations handled yet.</p>
+            <p className="text-sm text-slate-500">No individual registrations handled by you yet.</p>
           )}
         </div>
       </section>
@@ -142,7 +183,7 @@ export default async function AmbassadorHomePage() {
           })}
 
           {teams.length === 0 && (
-            <p className="text-center text-slate-500">No teams registered from your university yet.</p>
+            <p className="text-center text-slate-500">No teams registered by you yet.</p>
           )}
         </div>
       </section>

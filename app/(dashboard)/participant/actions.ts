@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
 async function requireParticipant() {
@@ -19,37 +20,43 @@ async function requireParticipant() {
 }
 
 export async function requestAmbassadorAction(formData: FormData) {
-  const user = await requireParticipant();
+  const user = await getCurrentUser();
 
-  const existingAmbassador = await prisma.ambassador.findUnique({
-    where: { userId: user.id },
-  });
-
-  if (existingAmbassador) {
-    throw new Error('You are already an Ambassador.');
+  if (!user || user.role !== 'PARTICIPANT' || !user.participant) {
+    redirect('/login');
   }
 
-  const existingRequest = await prisma.ambassadorRequest.findFirst({
+  const existing = await prisma.ambassadorRequest.findFirst({
     where: {
-      participantId: user.participant!.id,
-      status: 'PENDING',
+      participantId: user.participant.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
     },
   });
 
-  if (existingRequest) {
-    throw new Error('Your Ambassador request is already pending.');
+  if (existing?.status === 'PENDING') {
+    redirect('/participant/ambassador-application');
   }
 
-  const message = String(formData.get('message') ?? '').trim() || null;
+  if (existing?.status === 'APPROVED') {
+    redirect('/participant');
+  }
+
+  const message =
+    String(formData.get('message') ?? '').trim() || null;
 
   await prisma.ambassadorRequest.create({
     data: {
-      participantId: user.participant!.id,
+      participantId: user.participant.id,
       message,
     },
   });
 
-  redirect('/participant?ambassadorRequest=submitted');
+  revalidatePath('/participant');
+  revalidatePath('/participant/ambassador-application');
+
+  redirect('/participant/ambassador-application');
 }
 
 export async function submitPaymentAction(formData: FormData) {

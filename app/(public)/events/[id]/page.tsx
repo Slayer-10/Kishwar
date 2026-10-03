@@ -2,6 +2,9 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { spaceGrotesk } from '@/lib/fonts';
+import { getCurrentUser } from '@/lib/auth';
+import { AmbassadorRegisterForm } from '@/components/public/ambassador-register-form';
+import { AmbassadorTeamRegisterForm } from '@/components/public/ambassador-team-register-form';
 
 const STATUS_STYLES: Record<string, string> = {
   OPEN: 'border-[#E8A33D] text-[#E8A33D]',
@@ -14,6 +17,8 @@ export default async function PublicEventDetailPage({
 }: {
   params: { id: string };
 }) {
+  const user = await getCurrentUser();
+
   const event = await prisma.event.findUnique({
     where: { id: params.id },
   });
@@ -134,17 +139,52 @@ export default async function PublicEventDetailPage({
         {event.status === 'OPEN' && (
           <div className="mt-10 rounded-sm border border-[#2A2E3A] p-6">
             <h2 className="text-lg font-semibold">Registration</h2>
-            <p className="mt-2 text-sm leading-relaxed text-[#C9C6BD]">
-              Event registration is handled by authorized KISHWAR Ambassadors.
-              Participants cannot register themselves for events.
-            </p>
 
-            <Link
-              href="/participant"
-              className="mt-5 inline-block rounded-sm bg-[#E8A33D] px-5 py-3 text-sm font-medium text-[#12141C]"
-            >
-              Participant Login
-            </Link>
+            {!user && (
+              <>
+                <p className="mt-2 text-sm leading-relaxed text-[#C9C6BD]">
+                  Log in to continue with event registration.
+                </p>
+
+                <Link
+                  href="/login"
+                  className="mt-5 inline-block rounded-sm bg-[#E8A33D] px-5 py-3 text-sm font-medium text-[#12141C]"
+                >
+                  Login to Register
+                </Link>
+              </>
+            )}
+
+            {user?.role === 'PARTICIPANT' && (
+              <>
+                <p className="mt-2 text-sm leading-relaxed text-[#C9C6BD]">
+                  Event registration is handled by authorized KISHWAR Ambassadors.
+                </p>
+
+                <Link
+                  href="/participant/ambassador-application"
+                  className="mt-5 inline-block rounded-sm bg-[#E8A33D] px-5 py-3 text-sm font-medium text-[#12141C]"
+                >
+                  Ask Ambassador to Register / Become an Ambassador
+                </Link>
+              </>
+            )}
+
+            {user?.role === 'AMBASSADOR' && (
+              <>
+                {event.registrationType !== 'TEAM' && (
+                  <AmbassadorRegisterForm eventId={event.id} />
+                )}
+
+                {event.registrationType !== 'INDIVIDUAL' && (
+                  <AmbassadorTeamRegisterForm
+                    eventId={event.id}
+                    minTeamSize={event.minTeamSize}
+                    maxTeamSize={event.maxTeamSize}
+                  />
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
