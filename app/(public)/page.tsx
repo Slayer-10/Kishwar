@@ -46,12 +46,6 @@ export default async function HomePage() {
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <Link
-            href="/signup"
-            className="rounded-sm bg-[#E8A33D] px-6 py-3 text-center text-sm font-medium text-[#12141C] transition-colors duration-150 hover:bg-[#D9922E]"
-          >
-            Register Now
-          </Link>
-          <Link
             href="/events"
             className="rounded-sm border border-[#2A2E3A] px-6 py-3 text-center text-sm font-medium text-[#F2F0EA] transition-colors duration-150 hover:border-[#E8A33D] hover:text-[#E8A33D]"
           >

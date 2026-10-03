@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
 import { spaceGrotesk } from '@/lib/fonts';
+import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 
 type NavbarProps = {
   isLoggedIn: boolean;
@@ -19,6 +21,15 @@ const NAV_LINKS = [
 
 export function Navbar({ isLoggedIn, dashboardHref }: NavbarProps) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  async function handleLogout() {
+    const supabase = createSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    setOpen(false);
+    router.push('/');
+    router.refresh();
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-[#2A2E3A] bg-[#12141C]">
@@ -41,27 +52,27 @@ export function Navbar({ isLoggedIn, dashboardHref }: NavbarProps) {
 
         <div className="hidden items-center gap-4 md:flex">
           {isLoggedIn ? (
-            <Link
-              href={dashboardHref}
-              className="rounded-sm border border-[#E8A33D] px-4 py-2 text-sm font-medium text-[#E8A33D] transition-colors duration-150 hover:bg-[#E8A33D] hover:text-[#12141C]"
-            >
-              Dashboard
-            </Link>
-          ) : (
             <>
               <Link
-                href="/login"
-                className="text-sm text-[#C9C6BD] transition-colors duration-150 hover:text-[#E8A33D]"
+                href={dashboardHref}
+                className="rounded-sm border border-[#E8A33D] px-4 py-2 text-sm font-medium text-[#E8A33D] transition-colors duration-150 hover:bg-[#E8A33D] hover:text-[#12141C]"
               >
-                Log in
+                Dashboard
               </Link>
-              <Link
-                href="/signup"
-                className="rounded-sm bg-[#E8A33D] px-4 py-2 text-sm font-medium text-[#12141C] transition-colors duration-150 hover:bg-[#D9922E]"
+              <button
+                onClick={handleLogout}
+                className="rounded-sm border border-[#2A2E3A] px-4 py-2 text-sm font-medium text-[#F2F0EA] transition-colors duration-150 hover:border-[#E8A33D] hover:text-[#E8A33D]"
               >
-                Register
-              </Link>
+                Logout
+              </button>
             </>
+          ) : (
+            <Link
+              href="/login"
+              className="rounded-sm bg-[#E8A33D] px-4 py-2 text-sm font-medium text-[#12141C] transition-colors duration-150 hover:bg-[#D9922E]"
+            >
+              Login / Signup
+            </Link>
           )}
         </div>
 
@@ -88,26 +99,29 @@ export function Navbar({ isLoggedIn, dashboardHref }: NavbarProps) {
           ))}
           <div className="mt-2 flex flex-col gap-2 border-t border-[#2A2E3A] pt-4">
             {isLoggedIn ? (
-              <Link
-                href={dashboardHref}
-                onClick={() => setOpen(false)}
-                className="rounded-sm border border-[#E8A33D] px-4 py-2 text-center text-sm font-medium text-[#E8A33D]"
-              >
-                Dashboard
-              </Link>
-            ) : (
               <>
-                <Link href="/login" onClick={() => setOpen(false)} className="py-2 text-center text-sm text-[#C9C6BD]">
-                  Log in
-                </Link>
                 <Link
-                  href="/signup"
+                  href={dashboardHref}
                   onClick={() => setOpen(false)}
-                  className="rounded-sm bg-[#E8A33D] px-4 py-2 text-center text-sm font-medium text-[#12141C]"
+                  className="rounded-sm border border-[#E8A33D] px-4 py-2 text-center text-sm font-medium text-[#E8A33D]"
                 >
-                  Register
+                  Dashboard
                 </Link>
+                <button
+                  onClick={handleLogout}
+                  className="rounded-sm border border-[#2A2E3A] px-4 py-2 text-center text-sm font-medium text-[#F2F0EA]"
+                >
+                  Logout
+                </button>
               </>
+            ) : (
+              <Link
+                href="/login"
+                onClick={() => setOpen(false)}
+                className="rounded-sm bg-[#E8A33D] px-4 py-2 text-center text-sm font-medium text-[#12141C]"
+              >
+                Login / Signup
+              </Link>
             )}
           </div>
         </nav>
