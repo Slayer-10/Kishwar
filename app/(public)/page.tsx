@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { spaceGrotesk } from '@/lib/fonts';
+import { getCurrentUser } from '@/lib/auth';
 
 const STATS = [
   { label: 'Participants', value: '2,000+' },
@@ -8,7 +9,22 @@ const STATS = [
   { label: 'Events', value: '30+' },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const user = await getCurrentUser();
+
+  let ambassadorHref = '/login';
+  if (user) {
+    if (user.role === 'PARTICIPANT') {
+      ambassadorHref = '/participant/ambassador-application';
+    } else if (user.role === 'AMBASSADOR') {
+      ambassadorHref = '/ambassador';
+    } else if (user.role === 'SUPER_ADMIN') {
+      ambassadorHref = '/admin';
+    } else if (user.role === 'FDO') {
+      ambassadorHref = '/fdo';
+    }
+  }
+
   return (
     <div className="bg-[#12141C] text-[#F2F0EA]">
       {/* Hero */}
@@ -41,6 +57,12 @@ export default function HomePage() {
           >
             Explore Events
           </Link>
+          <Link
+            href={ambassadorHref}
+            className="rounded-sm border border-[#E8A33D] px-6 py-3 text-center text-sm font-medium text-[#E8A33D] transition-colors duration-150 hover:bg-[#E8A33D] hover:text-[#12141C]"
+          >
+            Become an Ambassador
+          </Link>
         </div>
       </section>
 
@@ -68,7 +90,7 @@ export default function HomePage() {
             One event, every discipline.
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-[#C9C6BD]">
-            KISHWAR is FAST-NUCES Multan's flagship mega event, hosting competitions
+            KISHWAR is FAST-NUCES Multan&apos;s flagship mega event, hosting competitions
             across computing, business, sports, and social categories. Teams from
             universities nationwide compete, network, and showcase their talent over
             multiple days of events.

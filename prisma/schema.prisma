@@ -89,6 +89,7 @@ model University {
 
   ambassadors Ambassador[]
   teams       Team[]
+  ambassadorRequests AmbassadorRequest[]
 }
 
 model Ambassador {
@@ -134,6 +135,13 @@ model AmbassadorRequest {
   id            String                  @id @default(uuid())
   participantId String
   participant   Participant             @relation(fields: [participantId], references: [id])
+  universityId   String?
+  university     University?             @relation(fields: [universityId], references: [id])
+  occupation     String?
+  gender         String?
+  degree         String?
+  semester       Int?
+  studentCardUrl String?
   reviewedById  String?
   reviewedBy    User?                   @relation("AmbassadorRequestReviewer", fields: [reviewedById], references: [id])
   status        AmbassadorRequestStatus @default(PENDING)
@@ -143,6 +151,7 @@ model AmbassadorRequest {
 
   @@index([participantId])
   @@index([status])
+  @@index([universityId])
 }
 
 model Team {

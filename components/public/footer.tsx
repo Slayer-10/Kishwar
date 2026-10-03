@@ -16,7 +16,7 @@ export function Footer() {
         <div>
           <p className={`${spaceGrotesk.className} text-lg font-bold text-[#F2F0EA]`}>KISHWAR</p>
           <p className="mt-3 max-w-xs text-sm leading-relaxed">
-            FAST-NUCES Multan's mega event — competitions across computing, business,
+            FAST-NUCES Multan&apos;s mega event — competitions across computing, business,
             and sports, open to universities nationwide.
           </p>
         </div>

@@ -16,6 +16,7 @@ export default async function AmbassadorRequestsPage() {
             user: true,
           },
         },
+        university: true,
       },
       orderBy: {
         createdAt: 'asc',
@@ -44,88 +45,164 @@ export default async function AmbassadorRequestsPage() {
         {requests.map((request) => (
           <div
             key={request.id}
-            className="rounded border p-6"
+            className="rounded border bg-white p-6 shadow-sm"
           >
-            <div>
-              <p className="font-semibold">
-                {request.participant.fullName}
-              </p>
-
-              <p className="text-sm text-slate-500">
-                {request.participant.email}
-              </p>
-
-              {request.message && (
-                <p className="mt-3 text-sm">
-                  {request.message}
-                </p>
-              )}
+            <div className="border-b pb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">
+                    {request.participant.fullName}
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    {request.participant.email}
+                  </p>
+                </div>
+                <span className="text-xs text-slate-400">
+                  Applied: {request.createdAt.toLocaleDateString()} {request.createdAt.toLocaleTimeString()}
+                </span>
+              </div>
             </div>
 
-            <form
-              action={approveAmbassadorRequestAction}
-              className="mt-5 flex max-w-xl flex-col gap-3"
-            >
-              <input
-                type="hidden"
-                name="requestId"
-                value={request.id}
-              />
+            {/* Application Details */}
+            <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <p className="text-xs font-medium text-slate-500">Phone</p>
+                <p className="font-semibold text-slate-800">{request.participant.phone ?? '—'}</p>
+              </div>
 
-              <select
-                name="universityId"
-                required
-                className="rounded border p-2"
-              >
-                <option value="">
-                  Select University
-                </option>
+              <div>
+                <p className="text-xs font-medium text-slate-500">CNIC</p>
+                <p className="font-semibold text-slate-800">{request.participant.cnic ?? '—'}</p>
+              </div>
 
-                {universities.map((university) => (
-                  <option
-                    key={university.id}
-                    value={university.id}
+              <div>
+                <p className="text-xs font-medium text-slate-500">Selected University</p>
+                <p className="font-semibold text-slate-800">{request.university?.name ?? '—'}</p>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-slate-500">Occupation</p>
+                <p className="font-semibold text-slate-800">{request.occupation ?? '—'}</p>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-slate-500">Gender</p>
+                <p className="font-semibold text-slate-800">{request.gender ?? '—'}</p>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-slate-500">Degree / Semester</p>
+                <p className="font-semibold text-slate-800">
+                  {request.degree ? `${request.degree} (Sem ${request.semester ?? 'N/A'})` : '—'}
+                </p>
+              </div>
+            </div>
+
+            {request.studentCardUrl && (
+              <div className="mt-4 rounded border bg-slate-50 p-3">
+                <p className="text-xs font-medium text-slate-500">Student Card Verification</p>
+                <div className="mt-2 flex items-center gap-4">
+                  <a
+                    href={request.studentCardUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:underline"
                   >
-                    {university.name}
-                    {university.city
-                      ? ` (${university.city})`
-                      : ''}
-                  </option>
-                ))}
-              </select>
+                    View Full Student Card Image ↗
+                  </a>
+                </div>
+              </div>
+            )}
 
-              <input
-                name="ambassadorCode"
-                required
-                placeholder="Ambassador Code"
-                className="rounded border p-2"
-              />
+            {request.message && (
+              <div className="mt-4 rounded bg-slate-50 p-3">
+                <p className="text-xs font-medium text-slate-500">Applicant Message</p>
+                <p className="mt-1 text-sm text-slate-700">{request.message}</p>
+              </div>
+            )}
 
-              <button
-                type="submit"
-                className="w-fit rounded bg-green-700 px-4 py-2 text-white"
+            {/* Approval / Rejection Form */}
+            <div className="mt-6 border-t pt-4">
+              <h3 className="mb-3 text-sm font-semibold text-slate-900">Review Action</h3>
+
+              <form
+                action={approveAmbassadorRequestAction}
+                className="flex max-w-xl flex-col gap-3"
               >
-                Approve Ambassador
-              </button>
-            </form>
+                <input
+                  type="hidden"
+                  name="requestId"
+                  value={request.id}
+                />
 
-            <form
-              action={rejectAmbassadorRequestAction}
-              className="mt-3"
-            >
-              <input
-                type="hidden"
-                name="requestId"
-                value={request.id}
-              />
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                    Assign University
+                  </label>
+                  <select
+                    name="universityId"
+                    required
+                    defaultValue={request.universityId ?? ''}
+                    className="w-full rounded border p-2 text-sm"
+                  >
+                    <option value="">
+                      Select University
+                    </option>
 
-              <button
-                type="submit"
-                className="rounded bg-red-700 px-4 py-2 text-white"
+                    {universities.map((university) => (
+                      <option
+                        key={university.id}
+                        value={university.id}
+                      >
+                        {university.name}
+                        {university.city
+                          ? ` (${university.city})`
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                    Ambassador Code
+                  </label>
+                  <input
+                    name="ambassadorCode"
+                    required
+                    placeholder="e.g. AMB-FAST-001"
+                    className="w-full rounded border p-2 text-sm"
+                  />
+                </div>
+
+                <div className="mt-2 flex items-center gap-3">
+                  <button
+                    type="submit"
+                    className="rounded bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800"
+                  >
+                    Approve Ambassador
+                  </button>
+                </div>
+              </form>
+
+              <form
+                action={rejectAmbassadorRequestAction}
+                className="mt-3"
               >
-                Reject Request
-              </button>
-            </form>
+                <input
+                  type="hidden"
+                  name="requestId"
+                  value={request.id}
+                />
+
+                <button
+                  type="submit"
+                  className="rounded bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
+                >
+                  Reject Request
+                </button>
+              </form>
+            </div>
           </div>
         ))}
 

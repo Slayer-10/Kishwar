@@ -34,6 +34,24 @@ export function AmbassadorRegisterForm({
         </p>
       </div>
 
+      <div>
+        <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
+          Participant CNIC
+        </label>
+
+        <input
+          name="participantCnic"
+          type="text"
+          required
+          placeholder="35202-1234567-1"
+          className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
+        />
+
+        <p className="mt-1 text-xs text-[#C9C6BD]">
+          CNIC must match the participant&apos;s account.
+        </p>
+      </div>
+
       <button
         type="submit"
         className="mt-1 self-start rounded-sm bg-[#E8A33D] px-4 py-2 text-sm font-medium text-[#12141C]"

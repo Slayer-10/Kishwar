@@ -23,9 +23,12 @@ export async function registerParticipantAction(formData: FormData) {
   const participantEmail = String(
     formData.get('participantEmail') ?? ''
   ).trim().toLowerCase();
+  const participantCnic = String(
+    formData.get('participantCnic') ?? ''
+  ).trim();
 
-  if (!eventId || !participantEmail) {
-    throw new Error('Event and participant email are required.');
+  if (!eventId || !participantEmail || !participantCnic) {
+    throw new Error('Event, participant email, and participant CNIC are required.');
   }
 
   const event = await prisma.event.findUnique({
@@ -56,6 +59,19 @@ export async function registerParticipantAction(formData: FormData) {
     throw new Error(
       'No KISHWAR participant account exists with this email. The participant must create an account first.'
     );
+  }
+
+  if (!participant.cnic || !participant.cnic.trim()) {
+    throw new Error(
+      'Participant CNIC is required before this participant can be registered.'
+    );
+  }
+
+  const cleanInputCnic = participantCnic.replaceAll('-', '').toLowerCase();
+  const cleanStoredCnic = participant.cnic.replaceAll('-', '').toLowerCase();
+
+  if (cleanInputCnic !== cleanStoredCnic) {
+    throw new Error("The entered CNIC does not match this participant's account.");
   }
 
   const existing = await prisma.registration.findFirst({
@@ -167,6 +183,15 @@ export async function registerTeamAction(formData: FormData) {
     throw new Error(
       'One or more participants do not have KISHWAR accounts. Every team member must already have an account.'
     );
+  }
+
+  // Verify every team member has a non-empty CNIC
+  for (const p of participants) {
+    if (!p.cnic || !p.cnic.trim()) {
+      throw new Error(
+        `Participant CNIC is required before this participant can be registered. Team member ${p.fullName} (${p.email}) is missing CNIC.`
+      );
+    }
   }
 
   const participantMap = new Map(

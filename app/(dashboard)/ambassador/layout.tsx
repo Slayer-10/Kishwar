@@ -3,8 +3,8 @@ import { getCurrentUser } from '@/lib/auth';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 
 const NAV_ITEMS = [
-  { label: 'My Teams', href: '/ambassador' },
-  { label: 'Register Participants', href: '/ambassador/participants' },
+  { label: 'My Registrations', href: '/ambassador' },
+  { label: 'Participants', href: '/ambassador/participants' },
 ];
 
 export default async function AmbassadorLayout({ children }: { children: React.ReactNode }) {

@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
@@ -35,20 +36,106 @@ export async function requestAmbassadorAction(formData: FormData) {
     },
   });
 
-  if (existing?.status === 'PENDING') {
+  if (existing?.status === 'PENDING' || existing?.status === 'APPROVED') {
     redirect('/participant/ambassador-application');
   }
 
-  if (existing?.status === 'APPROVED') {
-    redirect('/participant');
+  const fullName = String(formData.get('fullName') ?? '').trim();
+  const phone = String(formData.get('phone') ?? '').trim();
+  const cnic = String(formData.get('cnic') ?? '').trim();
+  const gender = String(formData.get('gender') ?? '').trim();
+  const universityId = String(formData.get('universityId') ?? '').trim();
+  const occupation = String(formData.get('occupation') ?? '').trim();
+  const degree = String(formData.get('degree') ?? '').trim();
+  const semesterRaw = String(formData.get('semester') ?? '').trim();
+  const message = String(formData.get('message') ?? '').trim() || null;
+  const studentCardFile = formData.get('studentCard') as File | null;
+
+  if (
+    !fullName ||
+    !phone ||
+    !cnic ||
+    !gender ||
+    !universityId ||
+    !occupation ||
+    !degree ||
+    !semesterRaw
+  ) {
+    throw new Error('All required personal and academic fields must be filled.');
   }
 
-  const message =
-    String(formData.get('message') ?? '').trim() || null;
+  const semester = parseInt(semesterRaw, 10);
+  if (isNaN(semester) || semester < 1) {
+    throw new Error('Semester must be a valid positive number.');
+  }
 
+  if (!studentCardFile || studentCardFile.size === 0) {
+    throw new Error('Clear picture of Student Card is required.');
+  }
+
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(studentCardFile.type)) {
+    throw new Error('Student Card must be a JPG, JPEG, PNG, or WEBP image.');
+  }
+
+  const university = await prisma.university.findUnique({
+    where: { id: universityId },
+  });
+  if (!university) {
+    throw new Error('Selected university not found.');
+  }
+
+  // Upload student card to Supabase Storage
+  const supabase = createSupabaseAdminClient();
+  const bucketName = 'student-cards';
+
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!buckets?.some((b) => b.name === bucketName)) {
+    await supabase.storage.createBucket(bucketName, { public: true });
+  }
+
+  const bytes = await studentCardFile.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  const fileExt = studentCardFile.name.split('.').pop() || 'png';
+  const filePath = `ambassador-applications/${user.participant.id}/${Date.now()}.${fileExt}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(bucketName)
+    .upload(filePath, buffer, {
+      contentType: studentCardFile.type,
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new Error(`Failed to upload student card: ${uploadError.message}`);
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from(bucketName)
+    .getPublicUrl(filePath);
+
+  const studentCardUrl = publicUrlData.publicUrl;
+
+  // Update participant details
+  await prisma.participant.update({
+    where: { id: user.participant.id },
+    data: {
+      fullName,
+      phone,
+      cnic,
+    },
+  });
+
+  // Create Ambassador Request
   await prisma.ambassadorRequest.create({
     data: {
       participantId: user.participant.id,
+      universityId,
+      occupation,
+      gender,
+      degree,
+      semester,
+      studentCardUrl,
       message,
     },
   });

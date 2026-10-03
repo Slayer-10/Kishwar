@@ -1,170 +1,149 @@
 import { prisma } from '@/lib/prisma';
-import { registerParticipantAction, registerTeamAction } from '../actions';
+import { getCurrentUser } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 
 export default async function AmbassadorParticipantsPage() {
-  const [events, participants] = await Promise.all([
-    prisma.event.findMany({
-      where: {
-        status: 'OPEN',
-        deadline: {
-          gte: new Date(),
+  const user = await getCurrentUser();
+
+  if (!user || user.role !== 'AMBASSADOR' || !user.ambassador) {
+    redirect('/login');
+  }
+
+  const ambassadorId = user.ambassador.id;
+
+  // Find all registrations handled by this ambassador
+  const registrations = await prisma.registration.findMany({
+    where: {
+      ambassadorId,
+    },
+    include: {
+      participant: true,
+      team: {
+        include: {
+          captain: true,
+          members: {
+            include: {
+              participant: true,
+            },
+          },
         },
       },
-      orderBy: {
-        deadline: 'asc',
-      },
-    }),
-    prisma.participant.findMany({
-      orderBy: {
-        fullName: 'asc',
-      },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-      },
-    }),
-  ]);
+    },
+  });
+
+  // Extract unique participants and count their registrations handled by this ambassador
+  const participantMap = new Map<
+    string,
+    {
+      id: string;
+      fullName: string;
+      email: string;
+      phone: string | null;
+      cnic: string | null;
+      registrationCount: number;
+    }
+  >();
+
+  for (const reg of registrations) {
+    if (reg.participant) {
+      const existing = participantMap.get(reg.participant.id);
+      if (existing) {
+        existing.registrationCount += 1;
+      } else {
+        participantMap.set(reg.participant.id, {
+          id: reg.participant.id,
+          fullName: reg.participant.fullName,
+          email: reg.participant.email,
+          phone: reg.participant.phone,
+          cnic: reg.participant.cnic,
+          registrationCount: 1,
+        });
+      }
+    }
+
+    if (reg.team) {
+      const teamParticipants = [
+        reg.team.captain,
+        ...reg.team.members.map((m) => m.participant),
+      ];
+
+      for (const p of teamParticipants) {
+        const existing = participantMap.get(p.id);
+        if (existing) {
+          existing.registrationCount += 1;
+        } else {
+          participantMap.set(p.id, {
+            id: p.id,
+            fullName: p.fullName,
+            email: p.email,
+            phone: p.phone,
+            cnic: p.cnic,
+            registrationCount: 1,
+          });
+        }
+      }
+    }
+  }
+
+  const participants = Array.from(participantMap.values());
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Register Participants</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Only existing KISHWAR participant accounts can be registered.
+        <h1 className="text-2xl font-bold">Participants</h1>
+        <p className="text-sm text-slate-500">
+          Participants and team members registered by you.
         </p>
       </div>
 
-      <section className="rounded border p-6">
-        <h2 className="mb-4 text-lg font-semibold">
-          Individual Registration
-        </h2>
+      <div className="rounded border bg-white">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b bg-slate-50 text-left font-medium text-slate-600">
+              <th className="p-3">Full Name</th>
+              <th className="p-3">Email</th>
+              <th className="p-3">Phone</th>
+              <th className="p-3">CNIC Status</th>
+              <th className="p-3 text-right">Registrations Handled</th>
+            </tr>
+          </thead>
+          <tbody>
+            {participants.map((p) => {
+              const hasCnic = Boolean(p.cnic && p.cnic.trim().length > 0);
 
-        <form
-          action={registerParticipantAction}
-          className="flex max-w-xl flex-col gap-4"
-        >
-          <select
-            name="eventId"
-            required
-            className="rounded border p-2"
-          >
-            <option value="">Select Event</option>
-            {events
-              .filter((event) => event.registrationType !== 'TEAM')
-              .map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.name} — PKR {event.registrationFee.toString()}
-                </option>
-              ))}
-          </select>
+              return (
+                <tr key={p.id} className="border-b last:border-0 hover:bg-slate-50">
+                  <td className="p-3 font-medium text-slate-900">{p.fullName}</td>
+                  <td className="p-3 text-slate-600">{p.email}</td>
+                  <td className="p-3 text-slate-600">{p.phone ?? '—'}</td>
+                  <td className="p-3">
+                    <span
+                      className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${
+                        hasCnic
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      CNIC: {hasCnic ? 'Provided' : 'Missing'}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right font-medium text-slate-900">
+                    {p.registrationCount}
+                  </td>
+                </tr>
+              );
+            })}
 
-          <input
-            name="participantEmail"
-            type="email"
-            list="participant-emails"
-            placeholder="Participant KISHWAR account email"
-            required
-            className="rounded border p-2"
-          />
-
-          <datalist id="participant-emails">
-            {participants.map((participant) => (
-              <option
-                key={participant.id}
-                value={participant.email}
-              >
-                {participant.fullName}
-              </option>
-            ))}
-          </datalist>
-
-          <button
-            type="submit"
-            className="w-fit rounded bg-slate-900 px-4 py-2 text-white"
-          >
-            Register Participant
-          </button>
-        </form>
-      </section>
-
-      <section className="rounded border p-6">
-        <h2 className="mb-4 text-lg font-semibold">
-          Team Registration
-        </h2>
-
-        <form
-          action={registerTeamAction}
-          className="flex max-w-xl flex-col gap-4"
-        >
-          <select
-            name="eventId"
-            required
-            className="rounded border p-2"
-          >
-            <option value="">Select Team Event</option>
-            {events
-              .filter((event) => event.registrationType !== 'INDIVIDUAL')
-              .map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.name} — PKR {event.registrationFee.toString()}
-                </option>
-              ))}
-          </select>
-
-          <input
-            name="teamName"
-            placeholder="Team name"
-            required
-            className="rounded border p-2"
-          />
-
-          <input
-            name="captainEmail"
-            type="email"
-            list="participant-emails"
-            placeholder="Captain email"
-            required
-            className="rounded border p-2"
-          />
-
-          <p className="text-sm text-slate-500">
-            Add the remaining team members below. Every member must
-            already have a KISHWAR account.
-          </p>
-
-          <input
-            name="memberEmails"
-            type="email"
-            list="participant-emails"
-            placeholder="Member 2 email"
-            className="rounded border p-2"
-          />
-
-          <input
-            name="memberEmails"
-            type="email"
-            list="participant-emails"
-            placeholder="Member 3 email"
-            className="rounded border p-2"
-          />
-
-          <input
-            name="memberEmails"
-            type="email"
-            list="participant-emails"
-            placeholder="Member 4 email"
-            className="rounded border p-2"
-          />
-
-          <button
-            type="submit"
-            className="w-fit rounded bg-slate-900 px-4 py-2 text-white"
-          >
-            Register Team
-          </button>
-        </form>
-      </section>
+            {participants.length === 0 && (
+              <tr>
+                <td colSpan={5} className="p-6 text-center text-slate-500">
+                  No participants registered by you yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
