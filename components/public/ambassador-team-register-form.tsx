@@ -27,7 +27,7 @@ export function AmbassadorTeamRegisterForm({
   return (
     <form
       action={registerTeamAction}
-      className="mt-5 flex flex-col gap-3 rounded-sm border border-[#2A2E3A] p-5"
+      className="mt-5 flex flex-col gap-4 rounded-sm border border-[#2A2E3A] p-5"
     >
       <input
         type="hidden"
@@ -48,22 +48,34 @@ export function AmbassadorTeamRegisterForm({
         />
       </div>
 
-      <div>
-        <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
-          Captain Email
-        </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
+            Captain Email
+          </label>
 
-        <input
-          name="captainEmail"
-          type="email"
-          required
-          placeholder="captain@example.com"
-          className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
-        />
+          <input
+            name="captainEmail"
+            type="email"
+            required
+            placeholder="captain@example.com"
+            className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
+          />
+        </div>
 
-        <p className="mt-1 text-xs text-[#C9C6BD]">
-          The captain must already have a KISHWAR account.
-        </p>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
+            Captain CNIC
+          </label>
+
+          <input
+            name="captainCnic"
+            type="text"
+            required
+            placeholder="35202-1234567-1"
+            className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
+          />
+        </div>
       </div>
 
       <div>
@@ -85,23 +97,40 @@ export function AmbassadorTeamRegisterForm({
       </div>
 
       {Array.from({ length: teammateCount }, (_, index) => (
-        <div key={index}>
-          <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
-            Member {index + 1} Email
-          </label>
+        <div key={index} className="grid grid-cols-1 gap-3 border-t border-[#2A2E3A] pt-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
+              Member {index + 1} Email
+            </label>
 
-          <input
-            name="memberEmails"
-            type="email"
-            required
-            className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
-          />
+            <input
+              name="memberEmails"
+              type="email"
+              required
+              placeholder={`member${index + 1}@example.com`}
+              className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
+              Member {index + 1} CNIC
+            </label>
+
+            <input
+              name="memberCnics"
+              type="text"
+              required
+              placeholder="35202-1234567-1"
+              className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
+            />
+          </div>
         </div>
       ))}
 
       <button
         type="submit"
-        className="mt-1 self-start rounded-sm bg-[#E8A33D] px-4 py-2 text-sm font-medium text-[#12141C]"
+        className="mt-2 self-start rounded-sm bg-[#E8A33D] px-4 py-2 text-sm font-medium text-[#12141C]"
       >
         Register Team
       </button>

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 
@@ -9,7 +10,7 @@ export default async function AmbassadorHomePage() {
     include: { university: true },
   });
 
-  const [teams, individualRegistrations] = await Promise.all([
+  const [teams, individualRegistrations, myParticipation] = await Promise.all([
     prisma.team.findMany({
       where: {
         ambassadorId: user!.ambassador!.id,
@@ -63,6 +64,37 @@ export default async function AmbassadorHomePage() {
         createdAt: 'desc',
       },
     }),
+
+    prisma.registration.findMany({
+      where: {
+        OR: [
+          { participantId: user!.participant!.id },
+          { team: { captainId: user!.participant!.id } },
+          { team: { members: { some: { participantId: user!.participant!.id } } } },
+        ],
+      },
+      include: {
+        event: true,
+        ambassador: {
+          include: {
+            user: true,
+            university: true,
+          },
+        },
+        invoice: {
+          include: {
+            payments: {
+              orderBy: {
+                createdAt: 'desc',
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    }),
   ]);
 
   return (
@@ -72,31 +104,68 @@ export default async function AmbassadorHomePage() {
         <p className="text-sm text-slate-500">{ambassador?.university.name} ({ambassador?.ambassadorCode})</p>
       </div>
 
+      {/* Metrics Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded border p-4">
-          <p className="text-sm text-slate-500">Individual Registrations</p>
+          <p className="text-sm text-slate-500">Individual Registrations Handled</p>
           <p className="mt-1 text-2xl font-bold">
             {individualRegistrations.length}
           </p>
         </div>
 
         <div className="rounded border p-4">
-          <p className="text-sm text-slate-500">Team Registrations</p>
+          <p className="text-sm text-slate-500">Team Registrations Handled</p>
           <p className="mt-1 text-2xl font-bold">
             {teams.length}
           </p>
         </div>
 
         <div className="rounded border p-4">
-          <p className="text-sm text-slate-500">Total Registrations</p>
+          <p className="text-sm text-slate-500">My Own Participations</p>
           <p className="mt-1 text-2xl font-bold">
-            {individualRegistrations.length + teams.length}
+            {myParticipation.length}
           </p>
         </div>
       </div>
 
+      {/* My Personal Participation */}
+      <section className="rounded-lg border border-blue-200 bg-blue-50/40 p-6">
+        <h2 className="mb-2 text-xl font-bold text-slate-900">My Participation</h2>
+        <p className="mb-4 text-sm text-slate-500">
+          Events you are personally participating in as a participant or team member.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {myParticipation.map((reg) => (
+            <div key={reg.id} className="rounded border bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Link href={`/events/${reg.eventId}`} className="font-semibold text-blue-600 underline">
+                    {reg.event.name}
+                  </Link>
+                  <p className="text-sm text-slate-500">
+                    Event Date: {new Date(reg.event.eventDate).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="text-right text-sm">
+                  <p>Status: <span className="font-medium">{reg.status}</span></p>
+                  {reg.invoice && (
+                    <p>Invoice: <span className="font-medium">{reg.invoice.status} (PKR {reg.invoice.amount.toString()})</span></p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {myParticipation.length === 0 && (
+            <p className="text-sm text-slate-500">You have not registered for any events personally yet.</p>
+          )}
+        </div>
+      </section>
+
+      {/* Registrations Handled by Ambassador */}
       <section>
-        <h2 className="mb-4 text-xl font-bold">Individual Registrations ({individualRegistrations.length})</h2>
+        <h2 className="mb-4 text-xl font-bold">Individual Registrations Handled ({individualRegistrations.length})</h2>
 
         <div className="flex flex-col gap-4">
           {individualRegistrations.map((reg) => {
@@ -132,7 +201,7 @@ export default async function AmbassadorHomePage() {
       </section>
 
       <section>
-        <h2 className="mb-4 text-xl font-bold">Team Registrations ({teams.length})</h2>
+        <h2 className="mb-4 text-xl font-bold">Team Registrations Handled ({teams.length})</h2>
 
         <div className="flex flex-col gap-6">
           {teams.map((team) => {

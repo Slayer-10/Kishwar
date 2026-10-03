@@ -22,11 +22,27 @@ export async function checkInTicketAction(formData: FormData) {
     redirect('/fdo/checkin?error=Please enter a ticket code.');
   }
 
-  const ticket = await prisma.ticket.findUnique({ where: { ticketCode } });
+  const ticket = await prisma.ticket.findUnique({
+    where: { ticketCode },
+    include: {
+      registration: {
+        include: {
+          event: true,
+        },
+      },
+    },
+  });
 
   if (!ticket) {
     redirect(`/fdo/checkin?error=No ticket found with that code.`);
   }
+
+  if (new Date(ticket.registration.event.deadline) < new Date()) {
+    redirect(
+      `/fdo/checkin?code=${ticketCode}&error=This ticket has expired because the registration deadline has passed.`
+    );
+  }
+
   if (ticket.status === 'USED') {
     redirect(`/fdo/checkin?code=${ticketCode}&error=This ticket has already been used.`);
   }

@@ -5,6 +5,7 @@ import { spaceGrotesk } from '@/lib/fonts';
 import { getCurrentUser } from '@/lib/auth';
 import { AmbassadorRegisterForm } from '@/components/public/ambassador-register-form';
 import { AmbassadorTeamRegisterForm } from '@/components/public/ambassador-team-register-form';
+import { AmbassadorSelfRegisterForm } from '@/components/public/ambassador-self-register-form';
 
 const STATUS_STYLES: Record<string, string> = {
   OPEN: 'border-[#E8A33D] text-[#E8A33D]',
@@ -171,19 +172,28 @@ export default async function PublicEventDetailPage({
             )}
 
             {user?.role === 'AMBASSADOR' && (
-              <>
+              <div className="space-y-6">
                 {event.registrationType !== 'TEAM' && (
-                  <AmbassadorRegisterForm eventId={event.id} />
+                  <div>
+                    <h3 className="mt-4 text-sm font-semibold text-[#E8A33D]">Register Yourself</h3>
+                    <AmbassadorSelfRegisterForm eventId={event.id} />
+
+                    <h3 className="mt-6 text-sm font-semibold text-[#E8A33D]">Register Another Participant</h3>
+                    <AmbassadorRegisterForm eventId={event.id} />
+                  </div>
                 )}
 
                 {event.registrationType !== 'INDIVIDUAL' && (
-                  <AmbassadorTeamRegisterForm
-                    eventId={event.id}
-                    minTeamSize={event.minTeamSize}
-                    maxTeamSize={event.maxTeamSize}
-                  />
+                  <div>
+                    <h3 className="mt-4 text-sm font-semibold text-[#E8A33D]">Register Team</h3>
+                    <AmbassadorTeamRegisterForm
+                      eventId={event.id}
+                      minTeamSize={event.minTeamSize}
+                      maxTeamSize={event.maxTeamSize}
+                    />
+                  </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}

@@ -9,7 +9,7 @@ import { revalidatePath } from 'next/cache';
 async function requireAmbassador() {
   const user = await getCurrentUser();
 
-  if (!user || user.role !== 'AMBASSADOR' || !user.ambassador) {
+  if (!user || user.role !== 'AMBASSADOR' || !user.ambassador || !user.participant) {
     redirect('/login');
   }
 
@@ -27,8 +27,13 @@ export async function registerParticipantAction(formData: FormData) {
     formData.get('participantCnic') ?? ''
   ).trim();
 
-  if (!eventId || !participantEmail || !participantCnic) {
-    throw new Error('Event, participant email, and participant CNIC are required.');
+  if (!eventId || !participantEmail) {
+    throw new Error('Event and participant email are required.');
+  }
+
+  const cleanInputCnic = participantCnic.replaceAll('-', '').trim();
+  if (!cleanInputCnic) {
+    throw new Error('Participant CNIC is required.');
   }
 
   const event = await prisma.event.findUnique({
@@ -61,17 +66,19 @@ export async function registerParticipantAction(formData: FormData) {
     );
   }
 
-  if (!participant.cnic || !participant.cnic.trim()) {
-    throw new Error(
-      'Participant CNIC is required before this participant can be registered.'
-    );
+  const cleanStoredCnic = participant.cnic
+    ? participant.cnic.replaceAll('-', '').trim()
+    : '';
+
+  if (cleanStoredCnic && cleanStoredCnic.toLowerCase() !== cleanInputCnic.toLowerCase()) {
+    throw new Error("The entered CNIC does not match this participant's account.");
   }
 
-  const cleanInputCnic = participantCnic.replaceAll('-', '').toLowerCase();
-  const cleanStoredCnic = participant.cnic.replaceAll('-', '').toLowerCase();
-
-  if (cleanInputCnic !== cleanStoredCnic) {
-    throw new Error("The entered CNIC does not match this participant's account.");
+  if (!cleanStoredCnic) {
+    await prisma.participant.update({
+      where: { id: participant.id },
+      data: { cnic: participantCnic.trim() },
+    });
   }
 
   const existing = await prisma.registration.findFirst({
@@ -116,11 +123,18 @@ export async function registerTeamAction(formData: FormData) {
   const captainEmail = String(
     formData.get('captainEmail') ?? ''
   ).trim().toLowerCase();
+  const captainCnic = String(
+    formData.get('captainCnic') ?? ''
+  ).trim();
 
   const memberEmails = formData
     .getAll('memberEmails')
     .map((value) => String(value).trim().toLowerCase())
     .filter(Boolean);
+
+  const memberCnics = formData
+    .getAll('memberCnics')
+    .map((value) => String(value).trim());
 
   if (!eventId || !teamName || !captainEmail) {
     throw new Error(
@@ -185,12 +199,38 @@ export async function registerTeamAction(formData: FormData) {
     );
   }
 
-  // Verify every team member has a non-empty CNIC
+  // Create a mapping of email to submitted CNIC
+  const cnicMap = new Map<string, string>();
+  cnicMap.set(captainEmail, captainCnic);
+  for (let i = 0; i < memberEmails.length; i++) {
+    if (memberEmails[i] && memberCnics[i]) {
+      cnicMap.set(memberEmails[i], memberCnics[i]);
+    }
+  }
+
+  // Process CNIC validation & first-time persistence for every team member
   for (const p of participants) {
-    if (!p.cnic || !p.cnic.trim()) {
-      throw new Error(
-        `Participant CNIC is required before this participant can be registered. Team member ${p.fullName} (${p.email}) is missing CNIC.`
-      );
+    const submittedCnic = cnicMap.get(p.email.toLowerCase()) ?? '';
+    const cleanInput = submittedCnic.replaceAll('-', '').trim();
+    const cleanStored = p.cnic ? p.cnic.replaceAll('-', '').trim() : '';
+
+    if (cleanStored) {
+      if (cleanInput && cleanStored.toLowerCase() !== cleanInput.toLowerCase()) {
+        throw new Error(
+          `The entered CNIC for ${p.fullName} (${p.email}) does not match their account.`
+        );
+      }
+    } else {
+      if (!cleanInput) {
+        throw new Error(
+          `Participant CNIC is required. Team member ${p.fullName} (${p.email}) is missing CNIC.`
+        );
+      }
+      // Save first-time CNIC
+      await prisma.participant.update({
+        where: { id: p.id },
+        data: { cnic: submittedCnic.trim() },
+      });
     }
   }
 
@@ -302,6 +342,91 @@ export async function registerTeamAction(formData: FormData) {
 
   revalidatePath('/ambassador');
   revalidatePath('/ambassador/participants');
+
+  redirect('/ambassador');
+}
+
+export async function registerSelfAction(formData: FormData) {
+  const user = await requireAmbassador();
+
+  const eventId = String(formData.get('eventId') ?? '').trim();
+  const participantCnic = String(formData.get('participantCnic') ?? '').trim();
+
+  if (!eventId) {
+    throw new Error('Event ID is required.');
+  }
+
+  const cleanInputCnic = participantCnic.replaceAll('-', '').trim();
+  if (!cleanInputCnic) {
+    throw new Error('Participant CNIC is required.');
+  }
+
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+  });
+
+  if (!event) {
+    throw new Error('Event not found.');
+  }
+
+  if (event.status !== 'OPEN') {
+    throw new Error('This event is not open for registration.');
+  }
+
+  if (event.deadline < new Date()) {
+    throw new Error('The registration deadline has passed.');
+  }
+
+  if (event.registrationType === 'TEAM') {
+    throw new Error('This event only accepts team registration.');
+  }
+
+  const participant = user.participant!;
+  const cleanStoredCnic = participant.cnic
+    ? participant.cnic.replaceAll('-', '').trim()
+    : '';
+
+  if (cleanStoredCnic && cleanStoredCnic.toLowerCase() !== cleanInputCnic.toLowerCase()) {
+    throw new Error('The entered CNIC does not match your participant account.');
+  }
+
+  if (!cleanStoredCnic) {
+    await prisma.participant.update({
+      where: { id: participant.id },
+      data: { cnic: participantCnic.trim() },
+    });
+  }
+
+  const existing = await prisma.registration.findFirst({
+    where: {
+      eventId,
+      participantId: participant.id,
+    },
+  });
+
+  if (existing) {
+    throw new Error('You are already registered for this event.');
+  }
+
+  const registration = await prisma.registration.create({
+    data: {
+      eventId,
+      participantId: participant.id,
+      ambassadorId: user.ambassador!.id,
+    },
+  });
+
+  await prisma.invoice.create({
+    data: {
+      registrationId: registration.id,
+      invoiceNumber: `INV-${randomUUID().slice(0, 8).toUpperCase()}`,
+      amount: event.registrationFee,
+    },
+  });
+
+  revalidatePath('/ambassador');
+  revalidatePath('/ambassador/payments');
+  revalidatePath(`/events/${eventId}`);
 
   redirect('/ambassador');
 }

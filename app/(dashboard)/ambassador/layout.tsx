@@ -3,7 +3,9 @@ import { getCurrentUser } from '@/lib/auth';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 
 const NAV_ITEMS = [
-  { label: 'My Registrations', href: '/ambassador' },
+  { label: 'Ambassador Registrations', href: '/ambassador' },
+  { label: 'My Invoices & Payments', href: '/ambassador/payments' },
+  { label: 'My Tickets', href: '/ambassador/tickets' },
   { label: 'Participants', href: '/ambassador/participants' },
 ];
 

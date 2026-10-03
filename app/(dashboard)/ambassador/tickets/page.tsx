@@ -1,17 +1,22 @@
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { getTicketDisplayStatus } from '@/lib/ticket-utils';
+import { redirect } from 'next/navigation';
 
-export default async function ParticipantTicketsPage() {
+export default async function AmbassadorTicketsPage() {
   const user = await getCurrentUser();
+
+  if (!user || user.role !== 'AMBASSADOR' || !user.participant) {
+    redirect('/login');
+  }
 
   const tickets = await prisma.ticket.findMany({
     where: {
       registration: {
         OR: [
-          { participantId: user!.participant!.id },
-          { team: { captainId: user!.participant!.id } },
-          { team: { members: { some: { participantId: user!.participant!.id } } } },
+          { participantId: user.participant.id },
+          { team: { captainId: user.participant.id } },
+          { team: { members: { some: { participantId: user.participant.id } } } },
         ],
       },
     },
@@ -23,14 +28,17 @@ export default async function ParticipantTicketsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">My Tickets</h1>
+      <h1 className="mb-2 text-2xl font-bold">My Tickets</h1>
+      <p className="mb-6 text-sm text-slate-500">
+        Tickets for events you are personally participating in.
+      </p>
 
       <div className="flex flex-col gap-4">
         {tickets.map((t) => {
           const displayStatus = getTicketDisplayStatus(t);
 
           return (
-            <div key={t.id} className="flex items-center gap-4 rounded border p-4">
+            <div key={t.id} className="flex items-center gap-4 rounded border p-4 bg-white">
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(t.qrData)}`}
                 alt="Ticket QR code"

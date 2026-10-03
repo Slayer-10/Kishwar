@@ -13,7 +13,7 @@ async function requireParticipant() {
     redirect('/login');
   }
 
-  if (user.role !== 'PARTICIPANT' || !user.participant) {
+  if (!user.participant) {
     throw new Error('Only participant accounts can perform this action.');
   }
 
@@ -156,24 +156,42 @@ export async function submitPaymentAction(formData: FormData) {
   const proofUrl =
     String(formData.get('proofUrl') ?? '').trim() || null;
 
+  const returnPath =
+    user.role === 'AMBASSADOR' ? '/ambassador/payments' : '/participant/payments';
+
   if (!invoiceId || !method) {
-    redirect('/participant/payments?error=Payment method is required.');
+    redirect(`${returnPath}?error=Payment method is required.`);
   }
 
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    include: { registration: true },
+    include: {
+      registration: {
+        include: {
+          team: {
+            include: {
+              members: true,
+            },
+          },
+        },
+      },
+    },
   });
 
-  if (
-    !invoice ||
-    invoice.registration.participantId !== user.participant!.id
-  ) {
-    redirect('/participant/payments?error=Invoice not found.');
+  const isOwner =
+    invoice &&
+    (invoice.registration.participantId === user.participant!.id ||
+      invoice.registration.team?.captainId === user.participant!.id ||
+      invoice.registration.team?.members.some(
+        (m) => m.participantId === user.participant!.id
+      ));
+
+  if (!invoice || !isOwner) {
+    redirect(`${returnPath}?error=Invoice not found.`);
   }
 
   if (invoice.status === 'PAID') {
-    redirect('/participant/payments?error=This invoice has already been paid.');
+    redirect(`${returnPath}?error=This invoice has already been paid.`);
   }
 
   await prisma.payment.create({
@@ -186,7 +204,10 @@ export async function submitPaymentAction(formData: FormData) {
     },
   });
 
-  redirect('/participant/payments');
+  revalidatePath('/participant/payments');
+  revalidatePath('/ambassador/payments');
+
+  redirect(returnPath);
 }
 
 export async function cancelRegistrationAction(registrationId: string) {
