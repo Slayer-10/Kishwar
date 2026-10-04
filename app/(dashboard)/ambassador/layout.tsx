@@ -4,9 +4,10 @@ import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 
 const NAV_ITEMS = [
   { label: 'Ambassador Registrations', href: '/ambassador' },
+  { label: 'Participants', href: '/ambassador/participants' },
+  { label: 'My Registrations', href: '/ambassador/my-registrations' },
   { label: 'My Invoices & Payments', href: '/ambassador/payments' },
   { label: 'My Tickets', href: '/ambassador/tickets' },
-  { label: 'Participants', href: '/ambassador/participants' },
 ];
 
 export default async function AmbassadorLayout({ children }: { children: React.ReactNode }) {

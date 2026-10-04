@@ -11,6 +11,40 @@ const ROLE_HOME: Record<string, string> = {
   PARTICIPANT: '/participant',
 };
 
+function getValidRedirectUrl(next: string | null | undefined, userRole: string): string {
+  const defaultHome = ROLE_HOME[userRole] ?? '/participant';
+
+  if (!next || typeof next !== 'string') return defaultHome;
+  const trimmed = next.trim();
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.includes('\\')) {
+    return defaultHome;
+  }
+
+  try {
+    const parsed = new URL(trimmed, 'http://localhost');
+    if (parsed.pathname !== trimmed && (parsed.pathname + parsed.search + parsed.hash) !== trimmed) {
+      return defaultHome;
+    }
+  } catch {
+    return defaultHome;
+  }
+
+  if (trimmed.startsWith('/admin') && userRole !== 'SUPER_ADMIN') {
+    return defaultHome;
+  }
+  if (trimmed.startsWith('/fdo') && userRole !== 'FDO') {
+    return defaultHome;
+  }
+  if (trimmed.startsWith('/ambassador') && userRole !== 'AMBASSADOR') {
+    return defaultHome;
+  }
+  if (trimmed.startsWith('/participant') && userRole !== 'PARTICIPANT') {
+    return defaultHome;
+  }
+
+  return trimmed;
+}
+
 export async function signUpAction(
   prevState: { error?: string },
   formData: FormData
@@ -18,6 +52,7 @@ export async function signUpAction(
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
   const fullName = String(formData.get('fullName'));
+  const next = formData.get('next') ? String(formData.get('next')) : null;
 
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
@@ -40,7 +75,8 @@ export async function signUpAction(
     }),
   ]);
 
-  redirect('/login');
+  const loginTarget = next ? `/login?next=${encodeURIComponent(next)}` : '/login';
+  redirect(loginTarget);
 }
 
 export async function signInAction(
@@ -49,6 +85,7 @@ export async function signInAction(
 ): Promise<{ error?: string }> {
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
+  const next = formData.get('next') ? String(formData.get('next')) : null;
 
   const supabase = createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -57,8 +94,18 @@ export async function signInAction(
     return { error: error.message };
   }
 
-  const dbUser = await prisma.user.findUnique({ where: { email } });
-  redirect(ROLE_HOME[dbUser?.role ?? 'PARTICIPANT']);
+  const dbUser = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!dbUser) {
+    return {
+      error: 'Your account exists in authentication but no application profile was found. Please contact the administrator.',
+    };
+  }
+
+  const destination = getValidRedirectUrl(next, dbUser.role);
+  redirect(destination);
 }
 
 export async function forgotPasswordAction(

@@ -6,25 +6,27 @@ import { redirect } from 'next/navigation';
 export default async function AmbassadorTicketsPage() {
   const user = await getCurrentUser();
 
-  if (!user || user.role !== 'AMBASSADOR' || !user.participant) {
+  if (!user || user.role !== 'AMBASSADOR') {
     redirect('/login');
   }
 
-  const tickets = await prisma.ticket.findMany({
-    where: {
-      registration: {
-        OR: [
-          { participantId: user.participant.id },
-          { team: { captainId: user.participant.id } },
-          { team: { members: { some: { participantId: user.participant.id } } } },
-        ],
-      },
-    },
-    include: {
-      registration: { include: { event: true, team: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const tickets = user.participant
+    ? await prisma.ticket.findMany({
+        where: {
+          registration: {
+            OR: [
+              { participantId: user.participant.id },
+              { team: { captainId: user.participant.id } },
+              { team: { members: { some: { participantId: user.participant.id } } } },
+            ],
+          },
+        },
+        include: {
+          registration: { include: { event: true, team: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    : [];
 
   return (
     <div>

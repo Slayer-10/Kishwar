@@ -12,12 +12,15 @@ const STATS = [
 export default async function HomePage() {
   const user = await getCurrentUser();
 
-  let ambassadorHref = '/login';
+  let ambassadorHref = '/ambassador-application';
+  let ambassadorLabel = 'Become an Ambassador';
+
   if (user) {
     if (user.role === 'PARTICIPANT') {
-      ambassadorHref = '/participant/ambassador-application';
+      ambassadorHref = '/ambassador-application';
     } else if (user.role === 'AMBASSADOR') {
       ambassadorHref = '/ambassador';
+      ambassadorLabel = 'Ambassador Dashboard';
     } else if (user.role === 'SUPER_ADMIN') {
       ambassadorHref = '/admin';
     } else if (user.role === 'FDO') {
@@ -55,7 +58,7 @@ export default async function HomePage() {
             href={ambassadorHref}
             className="rounded-sm border border-[#E8A33D] px-6 py-3 text-center text-sm font-medium text-[#E8A33D] transition-colors duration-150 hover:bg-[#E8A33D] hover:text-[#12141C]"
           >
-            Become an Ambassador
+            {ambassadorLabel}
           </Link>
         </div>
       </section>

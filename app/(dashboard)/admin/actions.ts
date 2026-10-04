@@ -433,22 +433,12 @@ export async function approveAmbassadorRequestAction(
     throw new Error('Only Super Admin can approve Ambassador requests.');
   }
 
-  const requestId = String(
-    formData.get('requestId') ?? ''
-  ).trim();
-
-  const universityId = String(
-    formData.get('universityId') ?? ''
-  ).trim();
-
-  const ambassadorCode = String(
-    formData.get('ambassadorCode') ?? ''
-  ).trim();
+  const requestId = String(formData.get('requestId') ?? '').trim();
+  const universityId = String(formData.get('universityId') ?? '').trim();
+  const ambassadorCode = String(formData.get('ambassadorCode') ?? '').trim();
 
   if (!requestId || !universityId || !ambassadorCode) {
-    throw new Error(
-      'Request, university, and Ambassador code are required.'
-    );
+    throw new Error('Request, university, and Ambassador code are required.');
   }
 
   const request = await prisma.ambassadorRequest.findUnique({
@@ -478,48 +468,92 @@ export async function approveAmbassadorRequestAction(
     throw new Error('University not found.');
   }
 
-  const existingAmbassador = await prisma.ambassador.findUnique({
-    where: {
-      userId: request.participant.userId,
-    },
-  });
-
-  if (existingAmbassador) {
-    throw new Error('This participant is already an Ambassador.');
-  }
-
   const existingCode = await prisma.ambassador.findUnique({
-    where: {
-      ambassadorCode,
-    },
+    where: { ambassadorCode },
   });
 
   if (existingCode) {
     throw new Error('That Ambassador code is already in use.');
   }
 
-  await prisma.$transaction([
-    prisma.user.update({
-      where: {
-        id: request.participant.userId,
-      },
+  let targetUserId: string;
+  const applicantEmail = (request.participant?.email ?? request.email ?? '').toLowerCase().trim();
+  const applicantName = request.participant?.fullName ?? request.fullName ?? 'Ambassador User';
+  const applicantPhone = request.participant?.phone ?? request.phone ?? null;
+  const applicantCnic = request.participant?.cnic ?? request.cnic ?? null;
+
+  if (!applicantEmail) {
+    throw new Error('Applicant email is required for approval.');
+  }
+
+  let existingUser = request.participant?.user ?? (await prisma.user.findUnique({ where: { email: applicantEmail } }));
+
+  if (existingUser) {
+    targetUserId = existingUser.id;
+
+    const existingAmbassador = await prisma.ambassador.findUnique({
+      where: { userId: targetUserId },
+    });
+
+    if (existingAmbassador) {
+      throw new Error('This applicant is already an Ambassador.');
+    }
+
+    await prisma.user.update({
+      where: { id: targetUserId },
+      data: { role: 'AMBASSADOR' },
+    });
+  } else {
+    const supabaseAdmin = createSupabaseAdminClient();
+    const defaultPassword = `Kishwar@2026`;
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: applicantEmail,
+      password: defaultPassword,
+      email_confirm: true,
+    });
+
+    if (authError || !authData.user) {
+      throw new Error(`Failed to create ambassador account in authentication: ${authError?.message ?? 'Unknown error'}`);
+    }
+
+    targetUserId = authData.user.id;
+
+    await prisma.user.create({
       data: {
+        id: targetUserId,
+        email: applicantEmail,
         role: 'AMBASSADOR',
       },
-    }),
+    });
+  }
 
+  const existingParticipant = await prisma.participant.findUnique({
+    where: { userId: targetUserId },
+  });
+
+  if (!existingParticipant) {
+    await prisma.participant.create({
+      data: {
+        userId: targetUserId,
+        fullName: applicantName,
+        email: applicantEmail,
+        phone: applicantPhone,
+        cnic: applicantCnic,
+      },
+    });
+  }
+
+  await prisma.$transaction([
     prisma.ambassador.create({
       data: {
-        userId: request.participant.userId,
+        userId: targetUserId,
         universityId,
         ambassadorCode,
       },
     }),
 
     prisma.ambassadorRequest.update({
-      where: {
-        id: request.id,
-      },
+      where: { id: request.id },
       data: {
         status: 'APPROVED',
         reviewedById: admin.id,
@@ -530,6 +564,7 @@ export async function approveAmbassadorRequestAction(
 
   revalidatePath('/admin/ambassador-requests');
   revalidatePath('/admin/ambassadors');
+  revalidatePath('/ambassador-application');
 }
 
 export async function rejectAmbassadorRequestAction(

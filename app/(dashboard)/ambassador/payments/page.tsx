@@ -10,11 +10,12 @@ export default async function AmbassadorPaymentsPage({
 }) {
   const user = await getCurrentUser();
 
-  if (!user || user.role !== 'AMBASSADOR' || !user.participant) {
+  if (!user || user.role !== 'AMBASSADOR') {
     redirect('/login');
   }
 
-  const invoices = await prisma.invoice.findMany({
+  const invoices = user.participant
+    ? await prisma.invoice.findMany({
     where: {
       registration: {
         OR: [
@@ -29,7 +30,7 @@ export default async function AmbassadorPaymentsPage({
       payments: { orderBy: { createdAt: 'desc' } },
     },
     orderBy: { createdAt: 'desc' },
-  });
+  }) : [];
 
   return (
     <div>
