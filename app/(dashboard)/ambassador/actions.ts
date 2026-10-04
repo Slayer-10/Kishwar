@@ -9,11 +9,22 @@ import { revalidatePath } from 'next/cache';
 async function requireAmbassador() {
   const user = await getCurrentUser();
 
-  if (!user || user.role !== 'AMBASSADOR' || !user.ambassador || !user.participant) {
+  if (!user || user.role !== 'AMBASSADOR' || !user.ambassador) {
     redirect('/login');
   }
 
-  return user;
+  if (!user.participant) {
+    const participant = await prisma.participant.create({
+      data: {
+        userId: user.id,
+        fullName: user.email.split('@')[0],
+        email: user.email,
+      },
+    });
+    return { ...user, participant };
+  }
+
+  return user as typeof user & { participant: NonNullable<typeof user.participant> };
 }
 
 export async function registerParticipantAction(formData: FormData) {

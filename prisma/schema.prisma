@@ -133,22 +133,30 @@ model Participant {
 
 model AmbassadorRequest {
   id            String                  @id @default(uuid())
-  participantId String
-  participant   Participant             @relation(fields: [participantId], references: [id])
-  universityId   String?
-  university     University?             @relation(fields: [universityId], references: [id])
-  occupation     String?
-  gender         String?
-  degree         String?
-  semester       Int?
+
+  participantId String?
+  participant   Participant?            @relation(fields: [participantId], references: [id])
+
+  fullName      String?
+  email         String?
+  phone         String?
+  gender        String?
+  cnic          String?
+  universityId  String?
+  university    University?             @relation(fields: [universityId], references: [id])
+  occupation    String?
+  degree        String?
+  semester      Int?
   studentCardUrl String?
+  message       String?
+
   reviewedById  String?
   reviewedBy    User?                   @relation("AmbassadorRequestReviewer", fields: [reviewedById], references: [id])
   status        AmbassadorRequestStatus @default(PENDING)
-  message       String?
   createdAt     DateTime                @default(now())
   reviewedAt    DateTime?
 
+  @@index([email])
   @@index([participantId])
   @@index([status])
   @@index([universityId])

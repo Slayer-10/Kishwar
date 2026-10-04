@@ -42,38 +42,44 @@ export default async function AmbassadorRequestsPage() {
       </p>
 
       <div className="space-y-6">
-        {requests.map((request) => (
-          <div
-            key={request.id}
-            className="rounded border bg-white p-6 shadow-sm"
-          >
-            <div className="border-b pb-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    {request.participant.fullName}
-                  </h2>
-                  <p className="text-sm text-slate-500">
-                    {request.participant.email}
-                  </p>
+        {requests.map((request) => {
+          const fullName = request.participant?.fullName ?? request.fullName ?? 'Applicant';
+          const email = request.participant?.email ?? request.email ?? '—';
+          const phone = request.participant?.phone ?? request.phone ?? '—';
+          const cnic = request.participant?.cnic ?? request.cnic ?? '—';
+
+          return (
+            <div
+              key={request.id}
+              className="rounded border bg-white p-6 shadow-sm"
+            >
+              <div className="border-b pb-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">
+                      {fullName}
+                    </h2>
+                    <p className="text-sm text-slate-500">
+                      {email} {!request.participant && <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800 font-normal">Public Applicant</span>}
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-400">
+                    Applied: {request.createdAt.toLocaleDateString()} {request.createdAt.toLocaleTimeString()}
+                  </span>
                 </div>
-                <span className="text-xs text-slate-400">
-                  Applied: {request.createdAt.toLocaleDateString()} {request.createdAt.toLocaleTimeString()}
-                </span>
-              </div>
-            </div>
-
-            {/* Application Details */}
-            <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <p className="text-xs font-medium text-slate-500">Phone</p>
-                <p className="font-semibold text-slate-800">{request.participant.phone ?? '—'}</p>
               </div>
 
-              <div>
-                <p className="text-xs font-medium text-slate-500">CNIC</p>
-                <p className="font-semibold text-slate-800">{request.participant.cnic ?? '—'}</p>
-              </div>
+              {/* Application Details */}
+              <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <p className="text-xs font-medium text-slate-500">Phone</p>
+                  <p className="font-semibold text-slate-800">{phone}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-medium text-slate-500">CNIC</p>
+                  <p className="font-semibold text-slate-800">{cnic}</p>
+                </div>
 
               <div>
                 <p className="text-xs font-medium text-slate-500">Selected University</p>
@@ -204,7 +210,8 @@ export default async function AmbassadorRequestsPage() {
               </form>
             </div>
           </div>
-        ))}
+        );
+        })}
 
         {requests.length === 0 && (
           <p className="text-slate-500">
