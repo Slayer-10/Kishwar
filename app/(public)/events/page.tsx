@@ -7,6 +7,8 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { CategoryBadge } from '@/components/ui/CategoryBadge';
 import { Button } from '@/components/ui/Button';
 
+export const dynamic = "force-dynamic";
+
 export default async function PublicEventsPage() {
   const events = await prisma.event.findMany({
     where: { status: { in: ['OPEN', 'CLOSED', 'COMPLETED'] } },

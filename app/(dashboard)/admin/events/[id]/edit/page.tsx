@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { EventForm } from '@/components/dashboard/event-form';
 import { updateEventAction } from '@/app/(dashboard)/admin/actions';
 
+export const dynamic = "force-dynamic";
+
 function toDateTimeLocal(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;

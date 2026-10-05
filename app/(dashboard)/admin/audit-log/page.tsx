@@ -2,6 +2,8 @@ import React from 'react';
 import { prisma } from '@/lib/prisma';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminAuditLogPage() {
   const logs = await prisma.auditLog.findMany({
     include: { user: true },

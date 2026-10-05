@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { Container } from '@/components/ui/Container';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 
+export const dynamic = "force-dynamic";
+
 function getInitials(email: string): string {
   if (!email) return 'AM';
   const namePart = email.split('@')[0];

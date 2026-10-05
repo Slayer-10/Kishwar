@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { DeleteAmbassadorButton } from '@/components/dashboard/delete-ambassador-button';
 import { Button } from '@/components/ui/Button';
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminAmbassadorsPage({
   searchParams,
 }: {

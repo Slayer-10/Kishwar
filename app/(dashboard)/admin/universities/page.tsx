@@ -4,6 +4,8 @@ import { createUniversityAction } from '@/app/(dashboard)/admin/actions';
 import { DeleteUniversityButton } from '@/components/dashboard/delete-university-button';
 import { Button } from '@/components/ui/Button';
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminUniversitiesPage({
   searchParams,
 }: {
