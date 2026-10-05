@@ -1,0 +1,142 @@
+:root {
+  /* ===== BRAND (from Style Guide Kishwar 26) ===== */
+  --color-primary: #A46434;
+  --color-primary-hover: #8A5229;
+  --color-secondary: #213567;
+  --color-secondary-deep: #162449;
+  --color-accent: #6AACDC;
+  --color-background: #F2F1F1;
+  --color-surface: #FFFFFF;
+  --color-divider: #DBDBDB;
+  --color-text: #262626;
+  --color-text-muted: #5C5C5C;
+  --color-text-on-dark: #F2F1F1;
+
+  /* ===== EVENT CATEGORY COLORS ===== */
+  --color-cat-creatives: #186FB4;
+  --color-cat-technical: #282760;
+  --color-cat-esports: #523084;
+  --color-cat-indoor: #2D7D46;
+  --color-cat-outdoor: #B46535;
+  --color-cat-socials: #FF8800;
+  --color-cat-literary: #96297C;
+
+  /* ===== STATUS COLORS ===== */
+  --color-success: #2D7D46;
+  --color-warning: #FF8800;
+  --color-danger: #B3261E;
+  --color-info: #186FB4;
+
+  /* ===== FONTS ===== */
+  --font-heading: var(--font-oswald), "Oswald", "Arial Narrow", sans-serif;
+  --font-body: var(--font-barlow), "Bahnschrift", system-ui, sans-serif;
+
+  /* ===== TYPE SCALE (size / line-height from style guide) ===== */
+  --fs-caption2: 0.625rem;  --lh-caption2: 0.875rem;
+  --fs-caption1: 0.75rem;   --lh-caption1: 1rem;
+  --fs-footnote: 0.875rem;  --lh-footnote: 1.125rem;
+  --fs-subhead: 1rem;       --lh-subhead: 1.375rem;
+  --fs-body: 1.125rem;      --lh-body: 1.5rem;
+  --fs-title3: 1.25rem;     --lh-title3: 1.5rem;
+  --fs-title2: 1.375rem;    --lh-title2: 1.625rem;
+  --fs-title1: 1.75rem;     --lh-title1: 2.125rem;
+  --fs-large: 2.125rem;     --lh-large: 2.5rem;
+  --fs-display: clamp(3rem, 9vw, 7rem);   /* hero only */
+  --lh-display: 1;
+
+  /* ===== LAYOUT ===== */
+  --container-max: 1200px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+  --shadow-card: 0 2px 10px rgba(33, 53, 103, 0.08);
+  --shadow-hover: 0 12px 30px rgba(33, 53, 103, 0.18);
+  --section-pad-y: clamp(3.5rem, 8vw, 6rem);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+*:focus-visible {
+  outline: 3px solid var(--color-accent) !important;
+  outline-offset: 2px !important;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-subhead);
+  line-height: var(--lh-subhead);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-text);
+}
+
+/* ===== MARQUEE ANIMATION ===== */
+@keyframes kishwar-marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: kishwar-marquee 40s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
+}
+
+/* ===== FORM UTILITIES ===== */
+.form-input {
+  height: 48px;
+  width: 100%;
+  border: 1.5px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  padding: 0 16px;
+  font-size: var(--fs-subhead);
+  outline: none;
+  transition: all 200ms ease;
+}
+
+.form-input:focus {
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 3px rgba(106, 172, 220, 0.35);
+}
+
+.form-label {
+  display: block;
+  font-size: var(--fs-footnote);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+
+.form-error {
+  color: var(--color-danger);
+  border-left: 4px solid var(--color-danger);
+  padding: 12px 16px;
+  background-color: rgba(179, 38, 30, 0.08);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-footnote);
+  margin-top: 12px;
+}
+
+

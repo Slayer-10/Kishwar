@@ -3,6 +3,7 @@
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { togglePublishAnnouncementAction, deleteAnnouncementAction } from '@/app/(dashboard)/admin/actions';
+import { Button } from '@/components/ui/Button';
 
 export function AnnouncementRowActions({
   announcementId,
@@ -35,13 +36,13 @@ export function AnnouncementRowActions({
   }
 
   return (
-    <div className="flex gap-3 text-sm">
-      <button onClick={handleToggle} disabled={isPending} className="text-blue-600 underline disabled:opacity-50">
+    <div className="flex items-center gap-2">
+      <Button onClick={handleToggle} disabled={isPending} variant="secondary" size="sm">
         {isPublished ? 'Unpublish' : 'Publish'}
-      </button>
-      <button onClick={handleDelete} disabled={isPending} className="text-red-600 underline disabled:opacity-50">
+      </Button>
+      <Button onClick={handleDelete} disabled={isPending} variant="danger" size="sm">
         Delete
-      </button>
+      </Button>
     </div>
   );
 }

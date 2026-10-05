@@ -1,7 +1,11 @@
+import React from 'react';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { submitPublicAmbassadorApplication } from './actions';
+import { Container } from '@/components/ui/Container';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { Button } from '@/components/ui/Button';
 
 export default async function PublicAmbassadorApplicationPage({
   searchParams,
@@ -13,20 +17,35 @@ export default async function PublicAmbassadorApplicationPage({
   // If user is already an Ambassador
   if (user?.role === 'AMBASSADOR') {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-16 text-[#F2F0EA]">
-        <h1 className="text-3xl font-bold">Ambassador Application</h1>
-        <div className="mt-6 space-y-3 rounded-sm border border-green-500/40 bg-green-500/10 p-6 text-sm text-green-200">
-          <p className="text-base font-semibold">Your ambassador application has been approved.</p>
-          <p>You are an active Ambassador representing your university.</p>
-          <div className="pt-2">
-            <Link
-              href="/ambassador"
-              className="inline-block rounded-sm bg-[#E8A33D] px-5 py-2.5 text-sm font-medium text-[#12141C]"
+      <div className="w-full py-16" style={{ backgroundColor: 'var(--color-background)' }}>
+        <Container className="max-w-2xl">
+          <div
+            className="p-8 rounded-[var(--radius-lg)] border-l-4 flex flex-col gap-4"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              borderLeftColor: 'var(--color-success)',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <h1
+              style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title1)' }}
+              className="font-bold text-[var(--color-text)] uppercase"
             >
-              Go to Ambassador Dashboard →
-            </Link>
+              Ambassador Application
+            </h1>
+            <p className="text-base font-semibold text-[var(--color-success)]">
+              Your ambassador application has been approved.
+            </p>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              You are an active Ambassador representing your university.
+            </p>
+            <div className="pt-2">
+              <Button href="/ambassador" variant="primary">
+                Go to Ambassador Dashboard →
+              </Button>
+            </div>
           </div>
-        </div>
+        </Container>
       </div>
     );
   }
@@ -65,54 +84,65 @@ export default async function PublicAmbassadorApplicationPage({
   const isPending = existingRequest?.status === 'PENDING' || searchParams.submitted === '1';
 
   return (
-    <div className="bg-[#12141C] text-[#F2F0EA]">
-      <div className="mx-auto max-w-2xl px-6 py-16">
-        <Link href="/" className="text-sm text-[#C9C6BD] hover:text-[#E8A33D]">
+    <div className="w-full py-16" style={{ backgroundColor: 'var(--color-background)' }}>
+      <Container className="max-w-2xl">
+        <Link
+          href="/"
+          className="text-xs uppercase font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-primary)] transition-colors"
+        >
           ← Back to KISHWAR Home
         </Link>
 
-        <h1 className="mt-6 text-3xl font-bold md:text-4xl">
-          Become a KISHWAR Ambassador
-        </h1>
-
-        <p className="mt-2 text-base leading-relaxed text-[#C9C6BD]">
-          Campus ambassadors represent partner universities across Pakistan and manage event registrations for their institution.
-        </p>
+        <SectionHeading
+          eyebrow="Network"
+          title="Become a KISHWAR Ambassador"
+          subtitle="Campus ambassadors represent partner universities across Pakistan and manage event registrations for their institution."
+          className="mt-6 mb-8"
+        />
 
         {isPending && (
-          <div className="mt-8 space-y-3 rounded-sm border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
-            <p className="text-base font-semibold">
+          <div
+            className="p-6 rounded-[var(--radius-md)] border-l-4 flex flex-col gap-2 text-sm"
+            style={{
+              backgroundColor: 'rgba(255, 136, 0, 0.08)',
+              borderLeftColor: 'var(--color-warning)',
+            }}
+          >
+            <p className="text-base font-bold text-[var(--color-warning)]">
               Application submitted successfully.
             </p>
-            <p>
+            <p className="text-[var(--color-text-muted)]">
               Your application is now waiting for review by the KISHWAR administration.
             </p>
-            <p>
+            <p className="text-[var(--color-text-muted)]">
               Please wait for an email regarding the result of your application.
             </p>
             {existingRequest?.university && (
-              <p className="text-xs text-[#C9C6BD] border-t border-amber-500/20 pt-3">
-                Applied for: <span className="font-semibold text-white">{existingRequest.university.name}</span>
+              <p className="text-xs text-[var(--color-text-muted)] border-t border-[var(--color-divider)] pt-3 mt-1">
+                Applied for: <span className="font-semibold text-[var(--color-text)]">{existingRequest.university.name}</span>
               </p>
             )}
           </div>
         )}
 
         {existingRequest?.status === 'APPROVED' && !isPending && (
-          <div className="mt-8 space-y-3 rounded-sm border border-green-500/40 bg-green-500/10 p-6 text-sm text-green-200">
-            <p className="text-base font-semibold">
+          <div
+            className="p-6 rounded-[var(--radius-md)] border-l-4 flex flex-col gap-3 text-sm"
+            style={{
+              backgroundColor: 'rgba(45, 125, 70, 0.08)',
+              borderLeftColor: 'var(--color-success)',
+            }}
+          >
+            <p className="text-base font-bold text-[var(--color-success)]">
               Your ambassador application has been approved.
             </p>
-            <p>
+            <p className="text-[var(--color-text-muted)]">
               Please check your email for your Ambassador credentials and login instructions.
             </p>
             <div className="pt-2">
-              <Link
-                href="/login"
-                className="inline-block rounded-sm bg-[#E8A33D] px-5 py-2.5 text-sm font-medium text-[#12141C]"
-              >
+              <Button href="/login" variant="primary">
                 Log In Now →
-              </Link>
+              </Button>
             </div>
           </div>
         )}
@@ -121,20 +151,25 @@ export default async function PublicAmbassadorApplicationPage({
           <form
             action={submitPublicAmbassadorApplication}
             encType="multipart/form-data"
-            className="mt-8 flex flex-col gap-6"
+            className="flex flex-col gap-6"
           >
             {existingRequest?.status === 'REJECTED' && (
-              <div className="rounded-sm border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+              <div className="form-error">
                 Your previous Ambassador application was rejected. You may submit a new application below.
               </div>
             )}
 
             {/* Personal Information */}
-            <div className="space-y-4 rounded-sm border border-[#2A2E3A] p-5">
-              <h2 className="text-base font-semibold text-[#F2F0EA]">Personal Information</h2>
+            <div className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col gap-4">
+              <h2
+                style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title2)' }}
+                className="font-bold text-[var(--color-text)] uppercase"
+              >
+                Personal Information
+              </h2>
 
               <div>
-                <label htmlFor="fullName" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
+                <label htmlFor="fullName" className="form-label">
                   Full Name *
                 </label>
                 <input
@@ -144,27 +179,23 @@ export default async function PublicAmbassadorApplicationPage({
                   required
                   defaultValue={user?.participant?.fullName ?? ''}
                   placeholder="e.g. Ali Khan"
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
+                  className="form-input"
                 />
               </div>
 
               <div>
-                <label htmlFor="email" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
+                <label htmlFor="email" className="form-label">
                   Email Address *
                 </label>
                 {user?.participant ? (
                   <>
-                    <input
-                      type="hidden"
-                      name="email"
-                      value={user.participant.email}
-                    />
+                    <input type="hidden" name="email" value={user.participant.email} />
                     <input
                       id="email"
                       type="email"
                       disabled
                       value={user.participant.email}
-                      className="w-full rounded-sm border border-[#2A2E3A] bg-[#12141C] p-2.5 text-sm text-[#C9C6BD] cursor-not-allowed"
+                      className="form-input opacity-70 cursor-not-allowed bg-gray-100"
                     />
                   </>
                 ) : (
@@ -174,45 +205,42 @@ export default async function PublicAmbassadorApplicationPage({
                     type="email"
                     required
                     placeholder="name@example.com"
-                    className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
+                    className="form-input"
                   />
                 )}
               </div>
 
-              <div>
-                <label htmlFor="phone" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
-                  Phone Number *
-                </label>
-                <input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  required
-                  placeholder="0300-1234567"
-                  defaultValue={user?.participant?.phone ?? ''}
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="phone" className="form-label">
+                    Phone Number *
+                  </label>
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    required
+                    placeholder="0300-1234567"
+                    defaultValue={user?.participant?.phone ?? ''}
+                    className="form-input"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="gender" className="form-label">
+                    Gender *
+                  </label>
+                  <select id="gender" name="gender" required className="form-input">
+                    <option value="">Select Gender</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
               </div>
 
               <div>
-                <label htmlFor="gender" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
-                  Gender *
-                </label>
-                <select
-                  id="gender"
-                  name="gender"
-                  required
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
-                >
-                  <option value="">Select Gender</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="cnic" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
+                <label htmlFor="cnic" className="form-label">
                   CNIC Number *
                 </label>
                 <input
@@ -222,89 +250,93 @@ export default async function PublicAmbassadorApplicationPage({
                   required
                   placeholder="35202-1234567-1"
                   defaultValue={user?.participant?.cnic ?? ''}
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
+                  className="form-input"
                 />
               </div>
             </div>
 
             {/* Academic / Professional Information */}
-            <div className="space-y-4 rounded-sm border border-[#2A2E3A] p-5">
-              <h2 className="text-base font-semibold text-[#F2F0EA]">Academic / Professional Information</h2>
+            <div className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col gap-4">
+              <h2
+                style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title2)' }}
+                className="font-bold text-[var(--color-text)] uppercase"
+              >
+                Academic / Professional Information
+              </h2>
 
-              <div>
-                <label htmlFor="universityId" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
-                  University *
-                </label>
-                <select
-                  id="universityId"
-                  name="universityId"
-                  required
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
-                >
-                  <option value="">Select University</option>
-                  {universities.map((uni) => (
-                    <option key={uni.id} value={uni.id}>
-                      {uni.name} {uni.city ? `(${uni.city})` : ''}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="universityId" className="form-label">
+                    University *
+                  </label>
+                  <select id="universityId" name="universityId" required className="form-input">
+                    <option value="">Select University</option>
+                    {universities.map((uni) => (
+                      <option key={uni.id} value={uni.id}>
+                        {uni.name} {uni.city ? `(${uni.city})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="occupation" className="form-label">
+                    Occupation *
+                  </label>
+                  <select id="occupation" name="occupation" required className="form-input">
+                    <option value="">Select Occupation</option>
+                    <option value="Student">Student</option>
+                    <option value="Teacher">Teacher</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label htmlFor="occupation" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
-                  Occupation *
-                </label>
-                <select
-                  id="occupation"
-                  name="occupation"
-                  required
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
-                >
-                  <option value="">Select Occupation</option>
-                  <option value="Student">Student</option>
-                  <option value="Teacher">Teacher</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="degree" className="form-label">
+                    Degree / Program *
+                  </label>
+                  <input
+                    id="degree"
+                    name="degree"
+                    type="text"
+                    required
+                    placeholder="e.g. BS Computer Science"
+                    className="form-input"
+                  />
+                </div>
 
-              <div>
-                <label htmlFor="degree" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
-                  Degree / Program *
-                </label>
-                <input
-                  id="degree"
-                  name="degree"
-                  type="text"
-                  required
-                  placeholder="e.g. BS Computer Science"
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="semester" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
-                  Semester Number *
-                </label>
-                <input
-                  id="semester"
-                  name="semester"
-                  type="number"
-                  min="1"
-                  max="20"
-                  required
-                  placeholder="e.g. 5"
-                  className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-2.5 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
-                />
+                <div>
+                  <label htmlFor="semester" className="form-label">
+                    Semester Number *
+                  </label>
+                  <input
+                    id="semester"
+                    name="semester"
+                    type="number"
+                    min="1"
+                    max="20"
+                    required
+                    placeholder="e.g. 5"
+                    className="form-input"
+                  />
+                </div>
               </div>
             </div>
 
             {/* Student Verification */}
-            <div className="space-y-2 rounded-sm border border-[#2A2E3A] p-5">
-              <h2 className="text-base font-semibold text-[#F2F0EA]">Student Verification</h2>
-              <label htmlFor="studentCard" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
+            <div className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col gap-3">
+              <h2
+                style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title2)' }}
+                className="font-bold text-[var(--color-text)] uppercase"
+              >
+                Student Verification
+              </h2>
+              <label htmlFor="studentCard" className="form-label">
                 Clear picture of Student Card *
               </label>
-              <p className="text-xs text-[#C9C6BD]">
+              <p className="text-xs text-[var(--color-text-muted)]">
                 Make sure the picture is clear and all important information is readable.
               </p>
               <input
@@ -313,13 +345,13 @@ export default async function PublicAmbassadorApplicationPage({
                 type="file"
                 accept="image/jpeg,image/jpg,image/png,image/webp"
                 required
-                className="mt-2 block w-full text-sm text-[#C9C6BD] file:mr-4 file:rounded-sm file:border-0 file:bg-[#E8A33D] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#12141C] hover:file:bg-[#D9922E]"
+                className="mt-2 block w-full text-sm text-[var(--color-text)] file:mr-4 file:rounded-full file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:text-white hover:file:bg-[var(--color-primary-hover)] cursor-pointer"
               />
             </div>
 
             {/* Optional Message */}
-            <div>
-              <label htmlFor="message" className="mb-1 block text-sm font-medium text-[#C9C6BD]">
+            <div className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col gap-3">
+              <label htmlFor="message" className="form-label">
                 Message (Optional)
               </label>
               <textarea
@@ -327,19 +359,16 @@ export default async function PublicAmbassadorApplicationPage({
                 name="message"
                 rows={4}
                 placeholder="Tell the Super Admin why you would like to become a KISHWAR Ambassador."
-                className="w-full rounded-sm border border-[#2A2E3A] bg-[#1A1D27] p-3 text-sm text-[#F2F0EA] focus:border-[#E8A33D] focus:outline-none"
+                className="form-input !h-auto py-3"
               />
             </div>
 
-            <button
-              type="submit"
-              className="w-fit rounded-sm bg-[#E8A33D] px-6 py-3 text-sm font-medium text-[#12141C] hover:bg-[#D9922E]"
-            >
+            <Button type="submit" variant="primary" className="self-start">
               Submit Ambassador Application
-            </button>
+            </Button>
           </form>
         )}
-      </div>
+      </Container>
     </div>
   );
 }

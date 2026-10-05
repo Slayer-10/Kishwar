@@ -15,8 +15,10 @@ type NavbarProps = {
 const NAV_LINKS = [
   { label: 'Home', href: '/' },
   { label: 'Events', href: '/events' },
-  { label: 'Sponsors', href: '/sponsors' },
   { label: 'Ambassadors', href: '/ambassadors' },
+  { label: 'Sponsors', href: '/sponsors' },
+  { label: 'FAQs', href: '/faqs' },
+  { label: 'Contact', href: '/contact' },
 ];
 
 export function Navbar({ isLoggedIn, dashboardHref }: NavbarProps) {

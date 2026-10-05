@@ -3,6 +3,7 @@
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { deleteUniversityAction } from '@/app/(dashboard)/admin/actions';
+import { Button } from '@/components/ui/Button';
 
 export function DeleteUniversityButton({ universityId }: { universityId: string }) {
   const [isPending, startTransition] = useTransition();
@@ -22,8 +23,8 @@ export function DeleteUniversityButton({ universityId }: { universityId: string 
   }
 
   return (
-    <button onClick={handleDelete} disabled={isPending} className="text-red-600 underline disabled:opacity-50">
+    <Button onClick={handleDelete} disabled={isPending} variant="danger" size="sm">
       {isPending ? 'Deleting...' : 'Delete'}
-    </button>
+    </Button>
   );
 }

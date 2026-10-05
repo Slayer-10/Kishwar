@@ -1,4 +1,6 @@
+import React from 'react';
 import { prisma } from '@/lib/prisma';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default async function AdminRegistrationsPage() {
   const registrations = await prisma.registration.findMany({
@@ -12,53 +14,81 @@ export default async function AdminRegistrationsPage() {
   });
 
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold">Registrations</h1>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col">
+        <h1
+          style={{
+            fontFamily: 'var(--font-heading)',
+            fontSize: 'var(--fs-title1)',
+            lineHeight: 'var(--lh-title1)',
+            color: 'var(--color-text)',
+          }}
+          className="font-bold uppercase tracking-tight"
+        >
+          Registrations
+        </h1>
+        <div
+          className="mt-2 h-[4px] w-[56px] rounded-[2px]"
+          style={{ backgroundColor: 'var(--color-primary)' }}
+        />
+      </div>
 
-      <div className="overflow-x-auto rounded border">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-left">
-            <tr>
-              <th className="p-3">Event</th>
-              <th className="p-3">Registrant</th>
-              <th className="p-3">Type</th>
-              <th className="p-3">Status</th>
-              <th className="p-3">Invoice</th>
-              <th className="p-3">Registered</th>
+      <div className="w-full overflow-x-auto rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
+        <table className="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr
+              style={{ backgroundColor: 'var(--color-secondary)', color: '#FFFFFF' }}
+              className="font-heading text-xs uppercase tracking-wider h-[48px]"
+            >
+              <th className="px-5 py-3 font-semibold">Event</th>
+              <th className="px-5 py-3 font-semibold">Registrant</th>
+              <th className="px-5 py-3 font-semibold">Type</th>
+              <th className="px-5 py-3 font-semibold">Status</th>
+              <th className="px-5 py-3 font-semibold">Invoice</th>
+              <th className="px-5 py-3 font-semibold">Registered</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-[var(--color-divider)]">
             {registrations.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-3">{r.event.name}</td>
-                <td className="p-3">
+              <tr
+                key={r.id}
+                className="h-[56px] transition-colors hover:bg-[rgba(106,172,220,0.08)]"
+              >
+                <td className="px-5 py-3 font-semibold text-[var(--color-text)]">{r.event.name}</td>
+                <td className="px-5 py-3 text-[var(--color-text)]">
                   {r.participant?.fullName ?? r.team?.name ?? 'Unknown'}
                   {r.team && (
-                    <span className="ml-1 text-xs text-slate-500">
-                      ({r.team.captain.fullName}{r.team.university ? `, ${r.team.university.name}` : ''})
+                    <span className="ml-1 text-xs text-[var(--color-text-muted)]">
+                      ({r.team.captain.fullName}
+                      {r.team.university ? `, ${r.team.university.name}` : ''})
                     </span>
                   )}
                 </td>
-                <td className="p-3">{r.team ? 'Team' : 'Individual'}</td>
-                <td className="p-3">
-                  <span className={`rounded px-2 py-0.5 text-xs ${
-                    r.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' :
-                    r.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                    'bg-yellow-100 text-yellow-700'
-                  }`}>
-                    {r.status}
-                  </span>
+                <td className="px-5 py-3 font-medium text-[var(--color-text-muted)]">
+                  {r.team ? 'Team' : 'Individual'}
                 </td>
-                <td className="p-3">
-                  {r.invoice ? `${r.invoice.status} (PKR ${r.invoice.amount.toString()})` : '—'}
+                <td className="px-5 py-3">
+                  <StatusBadge status={r.status} />
                 </td>
-                <td className="p-3">{r.createdAt.toLocaleDateString()}</td>
+                <td className="px-5 py-3 text-[var(--color-text)]">
+                  {r.invoice ? (
+                    <span className="flex items-center gap-2">
+                      <StatusBadge status={r.invoice.status} />
+                      <span className="text-xs font-semibold">PKR {r.invoice.amount.toString()}</span>
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td className="px-5 py-3 text-[var(--color-text-muted)]">
+                  {new Date(r.createdAt).toLocaleDateString()}
+                </td>
               </tr>
             ))}
 
             {registrations.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-slate-500">
+                <td colSpan={6} className="px-5 py-8 text-center text-[var(--color-text-muted)]">
                   No registrations yet.
                 </td>
               </tr>

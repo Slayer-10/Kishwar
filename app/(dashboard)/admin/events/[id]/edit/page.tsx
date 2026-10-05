@@ -1,3 +1,4 @@
+import React from 'react';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { EventForm } from '@/components/dashboard/event-form';
@@ -16,8 +17,25 @@ export default async function EditEventPage({ params }: { params: { id: string }
   const boundAction = updateEventAction.bind(null, event.id);
 
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold">Edit Event</h1>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col">
+        <h1
+          style={{
+            fontFamily: 'var(--font-heading)',
+            fontSize: 'var(--fs-title1)',
+            lineHeight: 'var(--lh-title1)',
+            color: 'var(--color-text)',
+          }}
+          className="font-bold uppercase tracking-tight"
+        >
+          Edit Event
+        </h1>
+        <div
+          className="mt-2 h-[4px] w-[56px] rounded-[2px]"
+          style={{ backgroundColor: 'var(--color-primary)' }}
+        />
+      </div>
+
       <EventForm
         action={boundAction}
         submitLabel="Save Changes"

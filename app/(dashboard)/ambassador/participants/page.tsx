@@ -1,6 +1,8 @@
+import React from 'react';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default async function AmbassadorParticipantsPage() {
   const user = await getCurrentUser();
@@ -11,7 +13,6 @@ export default async function AmbassadorParticipantsPage() {
 
   const ambassadorId = user.ambassador.id;
 
-  // Find all registrations handled by this ambassador
   const registrations = await prisma.registration.findMany({
     where: {
       ambassadorId,
@@ -31,7 +32,6 @@ export default async function AmbassadorParticipantsPage() {
     },
   });
 
-  // Extract unique participants and count their registrations handled by this ambassador
   const participantMap = new Map<
     string,
     {
@@ -88,46 +88,58 @@ export default async function AmbassadorParticipantsPage() {
   const participants = Array.from(participantMap.values());
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Participants</h1>
-        <p className="text-sm text-slate-500">
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col">
+        <h1
+          style={{
+            fontFamily: 'var(--font-heading)',
+            fontSize: 'var(--fs-title1)',
+            lineHeight: 'var(--lh-title1)',
+            color: 'var(--color-text)',
+          }}
+          className="font-bold uppercase tracking-tight"
+        >
+          Participants
+        </h1>
+        <div
+          className="mt-2 h-[4px] w-[56px] rounded-[2px]"
+          style={{ backgroundColor: 'var(--color-primary)' }}
+        />
+        <p className="mt-2 text-sm text-[var(--color-text-muted)]">
           Participants and team members registered by you.
         </p>
       </div>
 
-      <div className="rounded border bg-white">
-        <table className="w-full border-collapse text-sm">
+      <div className="w-full overflow-x-auto rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
+        <table className="w-full text-left border-collapse text-sm">
           <thead>
-            <tr className="border-b bg-slate-50 text-left font-medium text-slate-600">
-              <th className="p-3">Full Name</th>
-              <th className="p-3">Email</th>
-              <th className="p-3">Phone</th>
-              <th className="p-3">CNIC Status</th>
-              <th className="p-3 text-right">Registrations Handled</th>
+            <tr
+              style={{ backgroundColor: 'var(--color-secondary)', color: '#FFFFFF' }}
+              className="font-heading text-xs uppercase tracking-wider h-[48px]"
+            >
+              <th className="px-5 py-3 font-semibold">Full Name</th>
+              <th className="px-5 py-3 font-semibold">Email</th>
+              <th className="px-5 py-3 font-semibold">Phone</th>
+              <th className="px-5 py-3 font-semibold">CNIC Status</th>
+              <th className="px-5 py-3 font-semibold text-right">Registrations</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-[var(--color-divider)]">
             {participants.map((p) => {
               const hasCnic = Boolean(p.cnic && p.cnic.trim().length > 0);
 
               return (
-                <tr key={p.id} className="border-b last:border-0 hover:bg-slate-50">
-                  <td className="p-3 font-medium text-slate-900">{p.fullName}</td>
-                  <td className="p-3 text-slate-600">{p.email}</td>
-                  <td className="p-3 text-slate-600">{p.phone ?? '—'}</td>
-                  <td className="p-3">
-                    <span
-                      className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${
-                        hasCnic
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      CNIC: {hasCnic ? 'Provided' : 'Missing'}
-                    </span>
+                <tr
+                  key={p.id}
+                  className="h-[56px] transition-colors hover:bg-[rgba(106,172,220,0.08)]"
+                >
+                  <td className="px-5 py-3 font-semibold text-[var(--color-text)]">{p.fullName}</td>
+                  <td className="px-5 py-3 text-[var(--color-text-muted)]">{p.email}</td>
+                  <td className="px-5 py-3 text-[var(--color-text-muted)]">{p.phone ?? '—'}</td>
+                  <td className="px-5 py-3">
+                    <StatusBadge status={hasCnic ? 'VALID' : 'INVALID'} />
                   </td>
-                  <td className="p-3 text-right font-medium text-slate-900">
+                  <td className="px-5 py-3 text-right font-bold text-[var(--color-primary)]">
                     {p.registrationCount}
                   </td>
                 </tr>
@@ -136,7 +148,7 @@ export default async function AmbassadorParticipantsPage() {
 
             {participants.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-slate-500">
+                <td colSpan={5} className="px-5 py-8 text-center text-[var(--color-text-muted)]">
                   No participants registered by you yet.
                 </td>
               </tr>

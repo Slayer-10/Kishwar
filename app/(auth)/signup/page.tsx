@@ -4,6 +4,8 @@ import { Suspense } from 'react';
 import { useFormState } from 'react-dom';
 import { useSearchParams } from 'next/navigation';
 import { signUpAction } from '../actions';
+import { AuthShell } from '@/components/auth/AuthShell';
+import { Button } from '@/components/ui/Button';
 
 const initialState = { error: undefined as string | undefined };
 
@@ -15,39 +17,73 @@ function SignupForm() {
   const loginHref = next ? `/login?next=${encodeURIComponent(next)}` : '/login';
 
   return (
-    <div className="mx-auto mt-24 max-w-sm">
-      <h1 className="mb-6 text-2xl font-bold">Create your KISHWAR account</h1>
-      {state?.error && (
-        <div className="mb-4 rounded bg-red-100 p-3 text-sm text-red-700">
-          {state.error}
+    <AuthShell
+      title="Create Account"
+      subtitle="Register your KISHWAR 26 account to join competitions."
+      footer={
+        <div className="flex justify-between items-center text-sm font-semibold">
+          <a href={loginHref} style={{ color: 'var(--color-primary)' }} className="hover:underline">
+            Already have an account? Log in
+          </a>
         </div>
-      )}
+      }
+    >
+      {state?.error && <div className="form-error">{state.error}</div>}
+
       <form action={formAction} className="flex flex-col gap-4">
         {next && <input type="hidden" name="next" value={next} />}
-        <input name="fullName" type="text" placeholder="Full name" required className="rounded border p-2" />
-        <input name="email" type="email" placeholder="Email" required className="rounded border p-2" />
-        <input
-          name="password"
-          type="password"
-          placeholder="Password"
-          required
-          minLength={6}
-          className="rounded border p-2"
-        />
-        <button type="submit" className="rounded bg-slate-900 p-2 text-white">
+
+        <div>
+          <label className="form-label">Full Name</label>
+          <input
+            name="fullName"
+            type="text"
+            placeholder="John Doe"
+            required
+            className="form-input"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">Email Address</label>
+          <input
+            name="email"
+            type="email"
+            placeholder="email@example.com"
+            required
+            className="form-input"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">Password</label>
+          <input
+            name="password"
+            type="password"
+            placeholder="Minimum 6 characters"
+            required
+            minLength={6}
+            className="form-input"
+          />
+        </div>
+
+        <Button type="submit" variant="primary" className="w-full mt-2">
           Sign up
-        </button>
+        </Button>
       </form>
-      <div className="mt-4 text-sm">
-        <a href={loginHref} className="text-slate-600 underline">Already have an account? Log in</a>
-      </div>
-    </div>
+    </AuthShell>
   );
 }
 
 export default function SignupPage() {
   return (
-    <Suspense fallback={<div className="mx-auto mt-24 max-w-sm text-center">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center p-6 text-base font-semibold text-[var(--color-text-muted)]">
+          Loading...
+        </div>
+      }
+    >
       <SignupForm />
     </Suspense>
   );

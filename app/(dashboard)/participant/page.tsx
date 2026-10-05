@@ -1,7 +1,10 @@
+import React from 'react';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { CancelRegistrationButton } from '@/components/dashboard/cancel-registration-button';
+import { Button } from '@/components/ui/Button';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default async function ParticipantHomePage() {
   const user = await getCurrentUser();
@@ -36,90 +39,107 @@ export default async function ParticipantHomePage() {
   });
 
   return (
-    <div className="space-y-10">
-      <section>
-        <h1 className="mb-2 text-2xl font-bold">My Account</h1>
-        <p className="text-sm text-slate-500">
-          {user!.participant!.fullName}
-        </p>
-      </section>
+    <div className="flex flex-col gap-8">
+      {/* Top Banner & Account Info */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-6 rounded-[var(--radius-lg)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
+        <div className="flex flex-col">
+          <span className="text-xs uppercase tracking-wider font-semibold text-[var(--color-text-muted)]">
+            Welcome back
+          </span>
+          <h1
+            style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title1)' }}
+            className="font-bold text-[var(--color-text)] uppercase"
+          >
+            {user!.participant!.fullName}
+          </h1>
+          <p className="text-sm text-[var(--color-text-muted)]">{user!.email}</p>
+        </div>
 
-      <div>
-        <Link
-          href="/participant/ambassador-application"
-          className="inline-block rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-        >
+        <Button href="/participant/ambassador-application" variant="primary">
           Become a KISHWAR Ambassador
-        </Link>
+        </Button>
       </div>
 
-      <section>
-        <h2 className="mb-6 text-xl font-bold">My Registrations</h2>
+      {/* Registrations Section (Cards) */}
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col">
+          <h2
+            style={{
+              fontFamily: 'var(--font-heading)',
+              fontSize: 'var(--fs-title2)',
+              color: 'var(--color-text)',
+            }}
+            className="font-bold uppercase tracking-tight"
+          >
+            My Registrations
+          </h2>
+          <div
+            className="mt-2 h-[4px] w-[56px] rounded-[2px]"
+            style={{ backgroundColor: 'var(--color-primary)' }}
+          />
+        </div>
 
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b text-left">
-              <th className="p-2">Event</th>
-              <th className="p-2">Status</th>
-              <th className="p-2">Ambassador</th>
-              <th className="p-2">University</th>
-              <th className="p-2">Event Date</th>
-              <th className="p-2">Actions</th>
-            </tr>
-          </thead>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {registrations.map((registration) => (
+            <div
+              key={registration.id}
+              className="flex flex-col justify-between p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] transition-all hover:-translate-y-[4px] border-t-4"
+              style={{ borderTopColor: 'var(--color-secondary)' }}
+            >
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-2">
+                  <StatusBadge status={registration.status} />
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    {new Date(registration.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
 
-          <tbody>
-            {registrations.map((registration) => (
-              <tr key={registration.id} className="border-b">
-                <td className="p-2">
-                  <Link
-                    href={`/events/${registration.eventId}`}
-                    className="text-blue-600 underline"
-                  >
-                    {registration.event.name}
-                  </Link>
-                </td>
-
-                <td className="p-2">
-                  {registration.status}
-                </td>
-
-                <td className="p-2">
-                  {registration.ambassador?.user.email ?? 'Direct'}
-                </td>
-
-                <td className="p-2">
-                  {registration.ambassador?.university.name ?? '—'}
-                </td>
-
-                <td className="p-2">
-                  {registration.event.eventDate.toLocaleString()}
-                </td>
-
-                <td className="p-2">
-                  {registration.status === 'PENDING' &&
-                    registration.participantId === user!.participant!.id && (
-                      <CancelRegistrationButton
-                        registrationId={registration.id}
-                      />
-                    )}
-                </td>
-              </tr>
-            ))}
-
-            {registrations.length === 0 && (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="p-4 text-center text-slate-500"
+                <Link
+                  href={`/events/${registration.eventId}`}
+                  className="font-bold uppercase tracking-wide hover:text-[var(--color-primary)] transition-colors"
+                  style={{
+                    fontFamily: 'var(--font-heading)',
+                    fontSize: 'var(--fs-title2)',
+                    color: 'var(--color-text)',
+                  }}
                 >
-                  No event registrations yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+                  {registration.event.name}
+                </Link>
+
+                <div className="flex flex-col gap-1 text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-divider)]">
+                  <div>
+                    <span className="font-semibold text-[var(--color-text)]">Event Date:</span>{' '}
+                    {new Date(registration.event.eventDate).toLocaleDateString()}
+                  </div>
+                  <div>
+                    <span className="font-semibold text-[var(--color-text)]">Ambassador:</span>{' '}
+                    {registration.ambassador?.user.email ?? 'Direct'}
+                  </div>
+                  {registration.ambassador?.university && (
+                    <div>
+                      <span className="font-semibold text-[var(--color-text)]">University:</span>{' '}
+                      {registration.ambassador.university.name}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {registration.status === 'PENDING' &&
+                registration.participantId === user!.participant!.id && (
+                  <div className="mt-4 pt-3 border-t border-[var(--color-divider)]">
+                    <CancelRegistrationButton registrationId={registration.id} />
+                  </div>
+                )}
+            </div>
+          ))}
+        </div>
+
+        {registrations.length === 0 && (
+          <div className="p-12 text-center rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] text-[var(--color-text-muted)]">
+            No event registrations yet. Browse our events to get started!
+          </div>
+        )}
+      </div>
     </div>
   );
 }

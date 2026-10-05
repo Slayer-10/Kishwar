@@ -1,4 +1,6 @@
+import React from 'react';
 import { prisma } from '@/lib/prisma';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default async function AdminAuditLogPage() {
   const logs = await prisma.auditLog.findMany({
@@ -8,45 +10,69 @@ export default async function AdminAuditLogPage() {
   });
 
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold">Audit Log</h1>
-      <p className="mb-4 text-sm text-slate-500">Showing the most recent 100 actions.</p>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col">
+        <h1
+          style={{
+            fontFamily: 'var(--font-heading)',
+            fontSize: 'var(--fs-title1)',
+            lineHeight: 'var(--lh-title1)',
+            color: 'var(--color-text)',
+          }}
+          className="font-bold uppercase tracking-tight"
+        >
+          Audit Log
+        </h1>
+        <div
+          className="mt-2 h-[4px] w-[56px] rounded-[2px]"
+          style={{ backgroundColor: 'var(--color-primary)' }}
+        />
+        <p className="mt-2 text-sm text-[var(--color-text-muted)]">
+          Showing the most recent 100 system actions.
+        </p>
+      </div>
 
-      <div className="overflow-x-auto rounded border">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-left">
-            <tr>
-              <th className="p-3">When</th>
-              <th className="p-3">Admin</th>
-              <th className="p-3">Action</th>
-              <th className="p-3">Target</th>
-              <th className="p-3">Details</th>
+      <div className="w-full overflow-x-auto rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
+        <table className="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr
+              style={{ backgroundColor: 'var(--color-secondary)', color: '#FFFFFF' }}
+              className="font-heading text-xs uppercase tracking-wider h-[48px]"
+            >
+              <th className="px-5 py-3 font-semibold">When</th>
+              <th className="px-5 py-3 font-semibold">Admin</th>
+              <th className="px-5 py-3 font-semibold">Action</th>
+              <th className="px-5 py-3 font-semibold">Target</th>
+              <th className="px-5 py-3 font-semibold">Details</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-[var(--color-divider)]">
             {logs.map((log) => (
-              <tr key={log.id} className="border-t">
-                <td className="p-3">{log.timestamp.toLocaleString()}</td>
-                <td className="p-3">{log.user.email}</td>
-                <td className="p-3">
-                  <span className={`rounded px-2 py-0.5 text-xs ${
-                    log.action === 'DELETE' ? 'bg-red-100 text-red-700' :
-                    log.action === 'CREATE' ? 'bg-green-100 text-green-700' :
-                    log.action === 'VERIFY' ? 'bg-green-100 text-green-700' :
-                    log.action === 'REJECT' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-slate-200 text-slate-700'
-                  }`}>
-                    {log.action}
-                  </span>
+              <tr
+                key={log.id}
+                className="h-[56px] transition-colors hover:bg-[rgba(106,172,220,0.08)]"
+              >
+                <td className="px-5 py-3 text-[var(--color-text-muted)]">
+                  {new Date(log.timestamp).toLocaleString()}
                 </td>
-                <td className="p-3">{log.targetTable} ({log.targetId.slice(0, 8)}...)</td>
-                <td className="p-3 font-mono text-xs">{JSON.stringify(log.details)}</td>
+                <td className="px-5 py-3 font-semibold text-[var(--color-text)]">
+                  {log.user.email}
+                </td>
+                <td className="px-5 py-3">
+                  <StatusBadge status={log.action} />
+                </td>
+                <td className="px-5 py-3 text-[var(--color-text)]">
+                  {log.targetTable} ({log.targetId.slice(0, 8)}...)
+                </td>
+                <td className="px-5 py-3 font-mono text-xs text-[var(--color-text-muted)] max-w-xs truncate">
+                  {JSON.stringify(log.details)}
+                </td>
               </tr>
             ))}
 
             {logs.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-slate-500">
+                <td colSpan={5} className="px-5 py-8 text-center text-[var(--color-text-muted)]">
                   No actions logged yet.
                 </td>
               </tr>

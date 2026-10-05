@@ -5,8 +5,11 @@ import { spaceGrotesk } from '@/lib/fonts';
 const NAV_LINKS = [
   { label: 'Home', href: '/' },
   { label: 'Events', href: '/events' },
-  { label: 'Sponsors', href: '/sponsors' },
   { label: 'Ambassadors', href: '/ambassadors' },
+  { label: 'Become an Ambassador', href: '/ambassador-application' },
+  { label: 'Sponsors', href: '/sponsors' },
+  { label: 'FAQs', href: '/faqs' },
+  { label: 'Contact', href: '/contact' },
 ];
 
 export function Footer() {

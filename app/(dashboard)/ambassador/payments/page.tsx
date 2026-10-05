@@ -1,7 +1,10 @@
+import React from 'react';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { submitPaymentAction } from '@/app/(dashboard)/participant/actions';
 import { redirect } from 'next/navigation';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { Button } from '@/components/ui/Button';
 
 export default async function AmbassadorPaymentsPage({
   searchParams,
@@ -16,91 +19,141 @@ export default async function AmbassadorPaymentsPage({
 
   const invoices = user.participant
     ? await prisma.invoice.findMany({
-    where: {
-      registration: {
-        OR: [
-          { participantId: user.participant.id },
-          { team: { captainId: user.participant.id } },
-          { team: { members: { some: { participantId: user.participant.id } } } },
-        ],
-      },
-    },
-    include: {
-      registration: { include: { event: true } },
-      payments: { orderBy: { createdAt: 'desc' } },
-    },
-    orderBy: { createdAt: 'desc' },
-  }) : [];
+        where: {
+          registration: {
+            OR: [
+              { participantId: user.participant.id },
+              { team: { captainId: user.participant.id } },
+              { team: { members: { some: { participantId: user.participant.id } } } },
+            ],
+          },
+        },
+        include: {
+          registration: { include: { event: true } },
+          payments: { orderBy: { createdAt: 'desc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    : [];
 
   return (
-    <div>
-      <h1 className="mb-2 text-2xl font-bold">My Invoices & Payments</h1>
-      <p className="mb-6 text-sm text-slate-500">
-        Invoices for events you are personally participating in.
-      </p>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col">
+        <h1
+          style={{
+            fontFamily: 'var(--font-heading)',
+            fontSize: 'var(--fs-title1)',
+            lineHeight: 'var(--lh-title1)',
+            color: 'var(--color-text)',
+          }}
+          className="font-bold uppercase tracking-tight"
+        >
+          My Invoices & Payments
+        </h1>
+        <div
+          className="mt-2 h-[4px] w-[56px] rounded-[2px]"
+          style={{ backgroundColor: 'var(--color-primary)' }}
+        />
+        <p className="mt-2 text-sm text-[var(--color-text-muted)]">
+          Invoices for events you are personally participating in.
+        </p>
+      </div>
 
-      {searchParams.error && (
-        <div className="mb-4 rounded bg-red-100 p-3 text-sm text-red-700">{searchParams.error}</div>
-      )}
+      {searchParams.error && <div className="form-error">{searchParams.error}</div>}
 
       <div className="flex flex-col gap-6">
         {invoices.map((invoice) => (
-          <div key={invoice.id} className="rounded border p-4 bg-white">
-            <div className="mb-2 flex items-center justify-between">
+          <div
+            key={invoice.id}
+            className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col gap-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--color-divider)] pb-3">
               <div>
-                <p className="font-semibold">{invoice.registration.event.name}</p>
-                <p className="text-sm text-slate-500">Invoice {invoice.invoiceNumber}</p>
+                <h2
+                  style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title2)' }}
+                  className="font-bold text-[var(--color-text)] uppercase tracking-wide"
+                >
+                  {invoice.registration.event.name}
+                </h2>
+                <p className="text-sm text-[var(--color-text-muted)] mt-1">
+                  Invoice <span className="font-semibold text-[var(--color-text)]">{invoice.invoiceNumber}</span>
+                </p>
               </div>
-              <div className="text-right">
-                <p className="font-semibold">PKR {invoice.amount.toString()}</p>
-                <span className={`rounded px-2 py-0.5 text-xs ${invoice.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                  {invoice.status}
+              <div className="flex flex-col items-end gap-1">
+                <span
+                  style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title2)', color: 'var(--color-primary)' }}
+                  className="font-bold"
+                >
+                  PKR {invoice.amount.toString()}
                 </span>
+                <StatusBadge status={invoice.status} />
               </div>
             </div>
 
             {invoice.payments.length > 0 && (
-              <div className="mb-3 flex flex-col gap-1 text-sm">
+              <div className="flex flex-col gap-2 p-3 rounded-[var(--radius-sm)] bg-[var(--color-background)]">
+                <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase">
+                  Payment History
+                </span>
                 {invoice.payments.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between rounded bg-slate-50 p-2">
-                    <span>{p.method}{p.referenceNumber ? ` — ${p.referenceNumber}` : ''}</span>
-                    <span className={`rounded px-2 py-0.5 text-xs ${
-                      p.verificationStatus === 'VERIFIED' ? 'bg-green-100 text-green-700' :
-                      p.verificationStatus === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                      'bg-slate-200 text-slate-700'
-                    }`}>
-                      {p.verificationStatus}
+                  <div key={p.id} className="flex items-center justify-between text-sm py-1">
+                    <span>
+                      {p.method}
+                      {p.referenceNumber ? ` — ${p.referenceNumber}` : ''}
                     </span>
+                    <StatusBadge status={p.verificationStatus} />
                   </div>
                 ))}
               </div>
             )}
 
             {invoice.status !== 'PAID' && (
-              <form action={submitPaymentAction} className="flex flex-wrap items-end gap-3 border-t pt-3">
+              <form action={submitPaymentAction} className="flex flex-col gap-4 border-t border-[var(--color-divider)] pt-4">
                 <input type="hidden" name="invoiceId" value={invoice.id} />
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Payment Method</label>
-                  <input name="method" type="text" placeholder="e.g. Bank Transfer" required className="rounded border p-2 text-sm" />
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="form-label">Payment Method</label>
+                    <input
+                      name="method"
+                      type="text"
+                      placeholder="e.g. Bank Transfer"
+                      required
+                      className="form-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Reference Number</label>
+                    <input
+                      name="referenceNumber"
+                      type="text"
+                      placeholder="Transaction ID"
+                      className="form-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Proof URL</label>
+                    <input
+                      name="proofUrl"
+                      type="text"
+                      placeholder="Link to screenshot"
+                      className="form-input"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Reference Number</label>
-                  <input name="referenceNumber" type="text" placeholder="Transaction ID" className="rounded border p-2 text-sm" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Proof URL</label>
-                  <input name="proofUrl" type="text" placeholder="Link to screenshot" className="rounded border p-2 text-sm" />
-                </div>
-                <button type="submit" className="rounded bg-slate-900 px-4 py-2 text-sm text-white">
+
+                <Button type="submit" variant="primary" className="self-start mt-2">
                   Submit Payment
-                </button>
+                </Button>
               </form>
             )}
           </div>
         ))}
 
         {invoices.length === 0 && (
-          <p className="text-center text-slate-500">No invoices yet for your personal event registrations.</p>
+          <p className="text-center py-12 text-[var(--color-text-muted)]">
+            No invoices yet for your personal event registrations.
+          </p>
         )}
       </div>
     </div>

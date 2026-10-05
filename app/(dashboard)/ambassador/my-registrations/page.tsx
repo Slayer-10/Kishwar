@@ -1,7 +1,10 @@
+import React from 'react';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { Button } from '@/components/ui/Button';
 
 export default async function AmbassadorMyRegistrationsPage() {
   const user = await getCurrentUser();
@@ -42,68 +45,78 @@ export default async function AmbassadorMyRegistrationsPage() {
     : [];
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">My Personal Registrations</h1>
-          <p className="text-sm text-slate-500">
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col">
+          <h1
+            style={{
+              fontFamily: 'var(--font-heading)',
+              fontSize: 'var(--fs-title1)',
+              lineHeight: 'var(--lh-title1)',
+              color: 'var(--color-text)',
+            }}
+            className="font-bold uppercase tracking-tight"
+          >
+            My Personal Registrations
+          </h1>
+          <div
+            className="mt-2 h-[4px] w-[56px] rounded-[2px]"
+            style={{ backgroundColor: 'var(--color-primary)' }}
+          />
+          <p className="mt-2 text-sm text-[var(--color-text-muted)]">
             Competitions where you are personally participating.
           </p>
         </div>
-        <Link
-          href="/events"
-          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-        >
+
+        <Button href="/events" variant="primary">
           Browse Events
-        </Link>
+        </Button>
       </div>
 
-      <div className="mt-6 flex flex-col gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {registrations.map((reg) => (
-          <div key={reg.id} className="rounded border bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="text-xs uppercase tracking-wider text-amber-600 font-semibold">
+          <div
+            key={reg.id}
+            className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col justify-between gap-4 border-t-4"
+            style={{ borderTopColor: 'var(--color-secondary)' }}
+          >
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs uppercase font-semibold text-[var(--color-primary)]">
                   {reg.event.category ?? 'Event'}
                 </span>
-                <h2 className="text-lg font-bold text-slate-900">{reg.event.name}</h2>
-                {reg.team && (
-                  <p className="text-sm text-slate-600">Team: {reg.team.name}</p>
-                )}
+                <StatusBadge status={reg.status} />
               </div>
-              <span className={`rounded px-2.5 py-1 text-xs font-semibold ${
-                reg.status === 'CONFIRMED' ? 'bg-green-100 text-green-800' :
-                reg.status === 'PAID' ? 'bg-blue-100 text-blue-800' :
-                reg.status === 'INVOICED' ? 'bg-amber-100 text-amber-800' :
-                'bg-slate-100 text-slate-800'
-              }`}>
-                {reg.status}
-              </span>
+
+              <h2
+                style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title2)' }}
+                className="font-bold uppercase text-[var(--color-text)]"
+              >
+                {reg.event.name}
+              </h2>
+              {reg.team && (
+                <p className="text-xs font-semibold text-[var(--color-text-muted)]">
+                  Team: {reg.team.name}
+                </p>
+              )}
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between border-t pt-4 text-sm gap-2">
-              <div>
-                <span className="text-slate-500">Registration Fee: </span>
-                <span className="font-semibold">PKR {reg.event.registrationFee.toString()}</span>
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[var(--color-divider)] text-sm">
+              <span className="text-xs font-bold text-[var(--color-primary)]">
+                Fee: PKR {reg.event.registrationFee.toString()}
+              </span>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 {reg.invoice && reg.invoice.status !== 'PAID' && (
-                  <Link
-                    href="/ambassador/payments"
-                    className="rounded border border-amber-600 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50"
-                  >
+                  <Button href="/ambassador/payments" variant="secondary" size="sm">
                     Pay Invoice ({reg.invoice.invoiceNumber})
-                  </Link>
+                  </Button>
                 )}
 
                 {reg.ticket && (
-                  <Link
-                    href="/ambassador/tickets"
-                    className="rounded bg-green-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-800"
-                  >
+                  <Button href="/ambassador/tickets" variant="primary" size="sm">
                     View Ticket
-                  </Link>
+                  </Button>
                 )}
               </div>
             </div>
@@ -111,14 +124,13 @@ export default async function AmbassadorMyRegistrationsPage() {
         ))}
 
         {registrations.length === 0 && (
-          <div className="rounded border border-dashed p-8 text-center text-slate-500">
+          <div className="col-span-full p-12 text-center rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] text-[var(--color-text-muted)]">
             <p>You have not registered for any personal event competitions yet.</p>
-            <Link
-              href="/events"
-              className="mt-3 inline-block rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-            >
-              Browse Open Events
-            </Link>
+            <div className="mt-4">
+              <Button href="/events" variant="primary">
+                Browse Open Events
+              </Button>
+            </div>
           </div>
         )}
       </div>

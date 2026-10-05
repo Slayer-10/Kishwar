@@ -1,4 +1,5 @@
 import { registerParticipantAction } from '@/app/(dashboard)/ambassador/actions';
+import { Button } from '@/components/ui/Button';
 
 export function AmbassadorRegisterForm({
   eventId,
@@ -8,7 +9,7 @@ export function AmbassadorRegisterForm({
   return (
     <form
       action={registerParticipantAction}
-      className="mt-5 flex flex-col gap-3 rounded-sm border border-[#2A2E3A] p-5"
+      className="mt-4 flex flex-col gap-4 rounded-[var(--radius-md)] border border-[var(--color-divider)] p-5 bg-[var(--color-surface)]"
     >
       <input
         type="hidden"
@@ -17,7 +18,7 @@ export function AmbassadorRegisterForm({
       />
 
       <div>
-        <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
+        <label className="form-label">
           Participant Email
         </label>
 
@@ -26,16 +27,16 @@ export function AmbassadorRegisterForm({
           type="email"
           required
           placeholder="participant@example.com"
-          className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
+          className="form-input"
         />
 
-        <p className="mt-1 text-xs text-[#C9C6BD]">
+        <p className="mt-1 text-xs text-[var(--color-text-muted)]">
           The participant must already have a KISHWAR account.
         </p>
       </div>
 
       <div>
-        <label className="mb-1 block text-xs font-medium text-[#C9C6BD]">
+        <label className="form-label">
           Participant CNIC
         </label>
 
@@ -44,20 +45,17 @@ export function AmbassadorRegisterForm({
           type="text"
           required
           placeholder="35202-1234567-1"
-          className="w-full rounded-sm border border-[#2A2E3A] bg-transparent p-2 text-sm text-[#F2F0EA]"
+          className="form-input"
         />
 
-        <p className="mt-1 text-xs text-[#C9C6BD]">
+        <p className="mt-1 text-xs text-[var(--color-text-muted)]">
           CNIC must match the participant&apos;s account.
         </p>
       </div>
 
-      <button
-        type="submit"
-        className="mt-1 self-start rounded-sm bg-[#E8A33D] px-4 py-2 text-sm font-medium text-[#12141C]"
-      >
+      <Button type="submit" variant="primary" className="w-full mt-2">
         Register Participant
-      </button>
+      </Button>
     </form>
   );
 }

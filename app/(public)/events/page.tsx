@@ -1,12 +1,11 @@
+import React from 'react';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { spaceGrotesk } from '@/lib/fonts';
-
-const STATUS_STYLES: Record<string, string> = {
-  OPEN: 'border-[#E8A33D] text-[#E8A33D]',
-  CLOSED: 'border-[#2A2E3A] text-[#C9C6BD]',
-  COMPLETED: 'border-[#2A2E3A] text-[#C9C6BD]',
-};
+import { getCategoryColor } from '@/lib/theme';
+import { Container } from '@/components/ui/Container';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { CategoryBadge } from '@/components/ui/CategoryBadge';
+import { Button } from '@/components/ui/Button';
 
 export default async function PublicEventsPage() {
   const events = await prisma.event.findMany({
@@ -23,51 +22,174 @@ export default async function PublicEventsPage() {
   const categories = Object.keys(grouped);
 
   return (
-    <div className="bg-[#12141C] text-[#F2F0EA]">
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <p className="text-sm font-medium uppercase tracking-widest text-[#E8A33D]">Compete</p>
-        <h1 className={`${spaceGrotesk.className} mt-3 text-4xl font-bold md:text-5xl`}>Events</h1>
-        <p className="mt-3 max-w-xl text-base text-[#C9C6BD]">
-          Browse all competitions open for registration across every category.
-        </p>
+    <div className="w-full flex flex-col" style={{ backgroundColor: 'var(--color-background)' }}>
+      {/* Page Header Band */}
+      <section
+        style={{
+          backgroundColor: 'var(--color-secondary-deep)',
+          paddingTop: '64px',
+          paddingBottom: '64px',
+        }}
+        className="w-full"
+      >
+        <Container>
+          <SectionHeading
+            onDark
+            eyebrow="Compete"
+            title="Events"
+            subtitle="Pick your arena."
+          />
+        </Container>
+      </section>
 
-        {events.length === 0 && (
-          <p className="mt-12 text-sm text-[#C9C6BD]">No events published yet.</p>
-        )}
+      {/* Main Events List */}
+      <section style={{ paddingTop: 'var(--section-pad-y)', paddingBottom: 'var(--section-pad-y)' }} className="w-full">
+        <Container>
+          {events.length === 0 && (
+            <p className="text-base text-center py-12" style={{ color: 'var(--color-text-muted)' }}>
+              No events published yet.
+            </p>
+          )}
 
-        <div className="mt-12 flex flex-col gap-14">
-          {categories.map((category) => (
-            <div key={category}>
-              <h2 className={`${spaceGrotesk.className} text-xl font-bold text-[#F2F0EA]`}>
-                {category}
-              </h2>
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {grouped[category].map((event) => (
-                  <Link
-                    key={event.id}
-                    href={`/events/${event.id}`}
-                    className="rounded-sm border border-[#2A2E3A] p-5 transition-colors duration-150 hover:border-[#E8A33D]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-base font-semibold text-[#F2F0EA]">{event.name}</h3>
-                      <span
-                        className={`shrink-0 rounded-sm border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[event.status] ?? 'border-[#2A2E3A] text-[#C9C6BD]'}`}
-                      >
-                        {event.status}
-                      </span>
-                    </div>
-                    <p className="mt-3 text-sm text-[#C9C6BD]">
-                      Event: {event.eventDate.toLocaleDateString()}
-                    </p>
-                    <p className="mt-1 text-sm text-[#C9C6BD]">
-                      Deadline: {event.deadline.toLocaleDateString()}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+          <div className="flex flex-col gap-14">
+            {categories.map((category) => {
+              const catColor = getCategoryColor(category);
+
+              return (
+                <div key={category} className="flex flex-col gap-6">
+                  {/* Category Group Heading */}
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-[6px] h-[28px] rounded-[2px]"
+                      style={{ backgroundColor: catColor }}
+                    />
+                    <h2
+                      style={{
+                        fontFamily: 'var(--font-heading)',
+                        fontSize: 'var(--fs-title2)',
+                        lineHeight: 'var(--lh-title2)',
+                        color: 'var(--color-text)',
+                      }}
+                      className="font-bold uppercase tracking-wide"
+                    >
+                      {category}
+                    </h2>
+                  </div>
+
+                  {/* Cards Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {grouped[category].map((event) => {
+                      const feeText = `Rs. ${event.registrationFee.toString()}`;
+                      const prizeText = event.prizeMoney ? `Prize: Rs. ${event.prizeMoney.toString()}` : null;
+                      const formattedDate = new Date(event.eventDate).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      });
+
+                      return (
+                        <div
+                          key={event.id}
+                          className="flex flex-col justify-between overflow-hidden rounded-[var(--radius-md)] transition-all duration-200 hover:-translate-y-[6px]"
+                          style={{
+                            backgroundColor: 'var(--color-surface)',
+                            boxShadow: 'var(--shadow-card)',
+                          }}
+                        >
+                          {/* Top 8px Accent Strip */}
+                          <div className="h-[8px] w-full" style={{ backgroundColor: catColor }} />
+
+                          {/* Card Body */}
+                          <div className="flex flex-col p-6 flex-1 gap-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <CategoryBadge category={event.category} />
+                              <span
+                                style={{
+                                  fontSize: 'var(--fs-caption1)',
+                                  color: event.status === 'OPEN' ? 'var(--color-success)' : 'var(--color-text-muted)',
+                                  backgroundColor: event.status === 'OPEN' ? 'rgba(45, 125, 70, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                                  padding: '2px 8px',
+                                  borderRadius: 'var(--radius-sm)',
+                                }}
+                                className="font-semibold uppercase"
+                              >
+                                {event.status}
+                              </span>
+                            </div>
+
+                            <h3
+                              style={{
+                                fontFamily: 'var(--font-heading)',
+                                fontSize: 'var(--fs-title2)',
+                                lineHeight: 'var(--lh-title2)',
+                                color: 'var(--color-text)',
+                              }}
+                              className="font-bold tracking-tight mt-1"
+                            >
+                              {event.name}
+                            </h3>
+
+                            <p
+                              style={{
+                                fontSize: 'var(--fs-footnote)',
+                                lineHeight: 'var(--lh-footnote)',
+                                color: 'var(--color-text-muted)',
+                              }}
+                            >
+                              {event.venue ? `${event.venue} • ` : ''}{formattedDate}
+                            </p>
+
+                            <div className="mt-auto pt-4 border-t border-[var(--color-divider)] flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-col">
+                                <span
+                                  style={{
+                                    fontFamily: 'var(--font-heading)',
+                                    fontSize: 'var(--fs-title3)',
+                                    color: 'var(--color-primary)',
+                                  }}
+                                  className="font-bold"
+                                >
+                                  {feeText}
+                                </span>
+                                {prizeText && (
+                                  <span
+                                    style={{
+                                      fontSize: 'var(--fs-caption1)',
+                                      color: 'var(--color-success)',
+                                    }}
+                                    className="font-semibold"
+                                  >
+                                    {prizeText}
+                                  </span>
+                                )}
+                              </div>
+
+                              <span
+                                style={{
+                                  fontSize: 'var(--fs-caption1)',
+                                  color: 'var(--color-text-muted)',
+                                }}
+                                className="uppercase font-medium px-2 py-1 bg-gray-100 rounded-[var(--radius-sm)]"
+                              >
+                                {event.registrationType}
+                              </span>
+                            </div>
+
+                            <div className="mt-4 pt-2">
+                              <Button href={`/events/${event.id}`} variant="primary" className="w-full">
+                                View Details
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Container>
       </section>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cancelRegistrationAction } from '@/app/(dashboard)/participant/actions';
+import { Button } from '@/components/ui/Button';
 
 export function CancelRegistrationButton({ registrationId }: { registrationId: string }) {
   const [isPending, startTransition] = useTransition();
@@ -22,8 +23,8 @@ export function CancelRegistrationButton({ registrationId }: { registrationId: s
   }
 
   return (
-    <button onClick={handleCancel} disabled={isPending} className="text-red-600 underline disabled:opacity-50">
+    <Button onClick={handleCancel} disabled={isPending} variant="danger" size="sm">
       {isPending ? 'Cancelling...' : 'Cancel'}
-    </button>
+    </Button>
   );
 }

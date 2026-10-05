@@ -4,6 +4,8 @@ import { Suspense } from 'react';
 import { useFormState } from 'react-dom';
 import { useSearchParams } from 'next/navigation';
 import { signInAction } from '../actions';
+import { AuthShell } from '@/components/auth/AuthShell';
+import { Button } from '@/components/ui/Button';
 
 const initialState = { error: undefined as string | undefined };
 
@@ -15,32 +17,68 @@ function LoginForm() {
   const signupHref = next ? `/signup?next=${encodeURIComponent(next)}` : '/signup';
 
   return (
-    <div className="mx-auto mt-24 max-w-sm">
-      <h1 className="mb-6 text-2xl font-bold">Log in to KISHWAR</h1>
-      {state?.error && (
-        <div className="mb-4 rounded bg-red-100 p-3 text-sm text-red-700">
-          {state.error}
+    <AuthShell
+      title="Log in"
+      subtitle="Welcome back! Enter your details to continue."
+      footer={
+        <div className="flex flex-wrap justify-between items-center text-sm font-semibold gap-2">
+          <a href={signupHref} style={{ color: 'var(--color-primary)' }} className="hover:underline">
+            Don&apos;t have an account? Sign up
+          </a>
+          <a
+            href="/forgot-password"
+            style={{ color: 'var(--color-text-muted)' }}
+            className="hover:underline font-normal text-xs"
+          >
+            Forgot password?
+          </a>
         </div>
-      )}
+      }
+    >
+      {state?.error && <div className="form-error">{state.error}</div>}
+
       <form action={formAction} className="flex flex-col gap-4">
         {next && <input type="hidden" name="next" value={next} />}
-        <input name="email" type="email" placeholder="Email" required className="rounded border p-2" />
-        <input name="password" type="password" placeholder="Password" required className="rounded border p-2" />
-        <button type="submit" className="rounded bg-slate-900 p-2 text-white">
+
+        <div>
+          <label className="form-label">Email Address</label>
+          <input
+            name="email"
+            type="email"
+            placeholder="email@example.com"
+            required
+            className="form-input"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">Password</label>
+          <input
+            name="password"
+            type="password"
+            placeholder="••••••••"
+            required
+            className="form-input"
+          />
+        </div>
+
+        <Button type="submit" variant="primary" className="w-full mt-2">
           Log in
-        </button>
+        </Button>
       </form>
-      <div className="mt-4 flex justify-between text-sm">
-        <a href={signupHref} className="text-slate-600 underline">Create account</a>
-        <a href="/forgot-password" className="text-slate-600 underline">Forgot password?</a>
-      </div>
-    </div>
+    </AuthShell>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="mx-auto mt-24 max-w-sm text-center">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center p-6 text-base font-semibold text-[var(--color-text-muted)]">
+          Loading...
+        </div>
+      }
+    >
       <LoginForm />
     </Suspense>
   );

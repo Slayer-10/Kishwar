@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 
+export const dynamic = 'force-dynamic';
+
 const NAV_ITEMS = [
   { label: 'Assigned Events', href: '/fdo' },
   { label: 'Check-In', href: '/fdo/checkin' },
