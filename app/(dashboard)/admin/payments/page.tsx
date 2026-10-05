@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { verifyPaymentAction, rejectPaymentAction } from '@/app/(dashboard)/admin/actions';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminPaymentsPage() {
   const payments = await prisma.payment.findMany({
     where: { verificationStatus: 'SUBMITTED' },

@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { spaceGrotesk } from '@/lib/fonts';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AmbassadorsPage() {
   const universities = await prisma.university.findMany({
     orderBy: { name: 'asc' },

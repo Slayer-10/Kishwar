@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 export default async function FdoRegistrationsPage() {
   const registrations = await prisma.registration.findMany({
     include: {

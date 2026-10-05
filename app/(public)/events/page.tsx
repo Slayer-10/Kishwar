@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { spaceGrotesk } from '@/lib/fonts';
 
+export const dynamic = 'force-dynamic';
+
 const STATUS_STYLES: Record<string, string> = {
   OPEN: 'border-[#E8A33D] text-[#E8A33D]',
   CLOSED: 'border-[#2A2E3A] text-[#C9C6BD]',

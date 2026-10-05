@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma';
 import { createAnnouncementAction } from '@/app/(dashboard)/admin/actions';
 import { AnnouncementRowActions } from '@/components/dashboard/announcement-row-actions';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminAnnouncementsPage({
   searchParams,
 }: {

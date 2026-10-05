@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { checkInTicketAction } from '@/app/(dashboard)/fdo/actions';
 
+export const dynamic = 'force-dynamic';
+
 export default async function FdoCheckinPage({
   searchParams,
 }: {

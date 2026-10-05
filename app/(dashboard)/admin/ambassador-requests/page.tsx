@@ -4,6 +4,8 @@ import {
   rejectAmbassadorRequestAction,
 } from '../actions';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AmbassadorRequestsPage() {
   const [requests, universities] = await Promise.all([
     prisma.ambassadorRequest.findMany({

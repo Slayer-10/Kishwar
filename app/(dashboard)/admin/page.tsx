@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { DeleteEventButton } from '@/components/dashboard/delete-event-button';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminEventsPage() {
   const events = await prisma.event.findMany({ orderBy: { eventDate: 'asc' } });
 

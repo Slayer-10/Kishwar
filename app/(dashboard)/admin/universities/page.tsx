@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma';
 import { createUniversityAction } from '@/app/(dashboard)/admin/actions';
 import { DeleteUniversityButton } from '@/components/dashboard/delete-university-button';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminUniversitiesPage({
   searchParams,
 }: {
