@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/Button';
 
 export const dynamic = "force-dynamic";
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminUniversitiesPage({
   searchParams,
 }: {

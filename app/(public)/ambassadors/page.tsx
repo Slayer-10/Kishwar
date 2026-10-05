@@ -15,6 +15,8 @@ function getInitials(email: string): string {
   return namePart.substring(0, 2).toUpperCase();
 }
 
+export const dynamic = 'force-dynamic';
+
 export default async function AmbassadorsPage() {
   const universities = await prisma.university.findMany({
     orderBy: { name: 'asc' },

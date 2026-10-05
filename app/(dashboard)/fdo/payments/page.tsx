@@ -4,6 +4,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export const dynamic = "force-dynamic";
 
+export const dynamic = 'force-dynamic';
+
 export default async function FdoPaymentsPage() {
   const payments = await prisma.payment.findMany({
     include: {
