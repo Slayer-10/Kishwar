@@ -5,8 +5,6 @@ import { DeleteEventButton } from '@/components/dashboard/delete-event-button';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
-export const dynamic = "force-dynamic";
-
 export const dynamic = 'force-dynamic';
 
 export default async function AdminEventsPage() {
