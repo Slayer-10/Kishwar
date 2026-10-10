@@ -106,8 +106,10 @@ model User {
   auditLogs                    AuditLog[]
   ambassadorRequests           AmbassadorRequest[]    @relation("AmbassadorRequestReviewer")
   collectiveInvoicesGenerated  CollectiveInvoice[]    @relation("CollectiveInvoiceGeneratedBy")
+  collectiveInvoicesPaidConfirmed CollectiveInvoice[] @relation("CollectiveInvoicePaidConfirmedBy")
   uploadedRegistrationEvidence RegistrationEvidence[] @relation("RegistrationEvidenceUploadedBy")
   reviewedRegistrationEvidence RegistrationEvidence[] @relation("RegistrationEvidenceReviewedBy")
+  registrationsPaymentConfirmed Registration[]         @relation("RegistrationPaymentConfirmedBy")
 
   @@index([role])
 }
@@ -282,6 +284,9 @@ model Registration {
   accommodationFee       Decimal?                 @db.Decimal(10, 2)
   ambassadorApprovedAt   DateTime?
   adminApprovedAt        DateTime?
+  paymentConfirmedAt     DateTime?
+  paymentConfirmedById   String?
+  paymentConfirmedBy     User?                    @relation("RegistrationPaymentConfirmedBy", fields: [paymentConfirmedById], references: [id], onDelete: SetNull)
   rejectionReason        String?
 
   createdAt DateTime @default(now())
@@ -369,6 +374,10 @@ model CollectiveInvoice {
 
   generatedById String
   generatedBy   User   @relation("CollectiveInvoiceGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
+
+  paidAt            DateTime?
+  paidConfirmedById String?
+  paidConfirmedBy   User?     @relation("CollectiveInvoicePaidConfirmedBy", fields: [paidConfirmedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

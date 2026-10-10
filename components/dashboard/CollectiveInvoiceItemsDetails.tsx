@@ -9,6 +9,8 @@ type LineItem = {
   eventName: string;
   participantName: string;
   participantEmail: string;
+  reviewStatus: string;
+  paymentStatus: string;
   baseAmount: number;
   discountAmount: number;
   finalAmount: number;
@@ -77,6 +79,8 @@ export function CollectiveInvoiceItemsDetails({ invoiceId }: { invoiceId: string
                     <th className="p-2 border">Registration ID</th>
                     <th className="p-2 border">Participant / Team</th>
                     <th className="p-2 border">Event</th>
+                    <th className="p-2 border">Review Status</th>
+                    <th className="p-2 border">Payment Status</th>
                     <th className="p-2 border text-right">Base Amount</th>
                     <th className="p-2 border text-right">Discount</th>
                     <th className="p-2 border text-right">Final Amount</th>
@@ -93,6 +97,22 @@ export function CollectiveInvoiceItemsDetails({ invoiceId }: { invoiceId: string
                         </span>
                       </td>
                       <td className="p-2 border">{item.eventName}</td>
+                      <td className="p-2 border">
+                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-50 text-green-700 border border-green-200">
+                          {item.reviewStatus}
+                        </span>
+                      </td>
+                      <td className="p-2 border">
+                        <span
+                          className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            item.paymentStatus === 'PAID'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}
+                        >
+                          {item.paymentStatus}
+                        </span>
+                      </td>
                       <td className="p-2 border text-right">PKR {item.baseAmount.toFixed(2)}</td>
                       <td className="p-2 border text-right text-green-600">
                         -PKR {item.discountAmount.toFixed(2)}
@@ -115,3 +135,4 @@ export function CollectiveInvoiceItemsDetails({ invoiceId }: { invoiceId: string
     </div>
   );
 }
+

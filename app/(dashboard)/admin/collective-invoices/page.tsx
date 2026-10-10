@@ -7,6 +7,7 @@ import {
   generateCollectiveInvoicesAction,
 } from './actions';
 import { CollectiveInvoiceItemsDetails } from '@/components/dashboard/CollectiveInvoiceItemsDetails';
+import { ConfirmPaymentButton } from '@/components/dashboard/ConfirmPaymentButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,13 @@ export default async function CollectiveInvoicesPage() {
         discountAmount: true,
         totalAmount: true,
         createdAt: true,
+        paidAt: true,
+        paidConfirmedById: true,
+        paidConfirmedBy: {
+          select: {
+            email: true,
+          },
+        },
         scopeKey: true,
         ambassador: {
           select: {
@@ -65,8 +73,7 @@ export default async function CollectiveInvoicesPage() {
       <header>
         <h1 className="text-2xl font-bold">Collective Invoices</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Configure discount tiers and manually generate consolidated
-          invoices for approved Ambassador-managed registrations.
+          Configure discount tiers, generate consolidated invoices, and confirm received bulk payments.
         </p>
       </header>
 
@@ -220,7 +227,13 @@ export default async function CollectiveInvoicesPage() {
                     {invoice.ambassador.university.name}
                   </span>
                   <div className="flex items-center space-x-3 text-xs">
-                    <span className="px-2 py-0.5 rounded font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                    <span
+                      className={`px-2 py-0.5 rounded font-semibold ${
+                        invoice.status === 'PAID'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-blue-50 text-blue-700 border border-blue-200'
+                      }`}
+                    >
                       {invoice.status}
                     </span>
                     <span className="font-bold text-gray-900 text-sm">
@@ -266,7 +279,24 @@ export default async function CollectiveInvoicesPage() {
                     <dt className="text-gray-500 font-medium">Created Date</dt>
                     <dd className="text-gray-700">{new Date(invoice.createdAt).toLocaleString()}</dd>
                   </div>
+                  {invoice.paidAt && (
+                    <div>
+                      <dt className="text-gray-500 font-medium">Payment Confirmed Date</dt>
+                      <dd className="text-emerald-700 font-semibold">{new Date(invoice.paidAt).toLocaleString()}</dd>
+                    </div>
+                  )}
+                  {invoice.paidConfirmedBy?.email && (
+                    <div>
+                      <dt className="text-gray-500 font-medium">Confirmed By Admin</dt>
+                      <dd className="text-gray-800 font-medium">{invoice.paidConfirmedBy.email}</dd>
+                    </div>
+                  )}
                 </dl>
+
+                <div className="mt-4 flex items-center justify-between border-t pt-3">
+                  <span className="text-xs text-gray-500 font-medium">Payment Action:</span>
+                  <ConfirmPaymentButton invoiceId={invoice.id} alreadyPaid={invoice.status === 'PAID'} />
+                </div>
 
                 <CollectiveInvoiceItemsDetails invoiceId={invoice.id} />
               </details>

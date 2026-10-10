@@ -284,6 +284,137 @@ export async function generateCollectiveInvoicesAction(_formData?: FormData): Pr
   revalidatePath('/ambassador');
 }
 
+export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
+  const admin = await requireSuperAdmin();
+
+  if (!invoiceId || typeof invoiceId !== 'string') {
+    return {
+      success: false,
+      message: 'A valid invoice ID is required.',
+    };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const invoice = await tx.collectiveInvoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          items: {
+            include: {
+              registration: true,
+            },
+          },
+        },
+      });
+
+      if (!invoice) {
+        throw new Error('INVOICE_NOT_FOUND');
+      }
+
+      if (invoice.status === 'PAID') {
+        throw new Error('INVOICE_ALREADY_PAID');
+      }
+
+      if (!invoice.items.length) {
+        throw new Error('INVOICE_HAS_NO_ITEMS');
+      }
+
+      // Validate every item before making changes
+      for (const item of invoice.items) {
+        const registration = item.registration;
+
+        if (!registration) {
+          throw new Error('REGISTRATION_NOT_FOUND');
+        }
+
+        if (
+          registration.reviewStatus === 'PENDING_ADMIN' ||
+          registration.reviewStatus === 'PENDING_AMBASSADOR' ||
+          registration.reviewStatus === 'REJECTED'
+        ) {
+          throw new Error('INVOICE_CONTAINS_INELIGIBLE_REGISTRATION');
+        }
+
+        if (registration.status === 'PAID') {
+          throw new Error('REGISTRATION_ALREADY_PAID');
+        }
+      }
+
+      const now = new Date();
+
+      // Mark invoice as PAID and set paidConfirmedById
+      const updatedInvoice = await tx.collectiveInvoice.updateMany({
+        where: {
+          id: invoiceId,
+          status: 'PENDING',
+        },
+        data: {
+          status: 'PAID',
+          paidAt: now,
+          paidConfirmedById: admin.id,
+        },
+      });
+
+      if (updatedInvoice.count !== 1) {
+        throw new Error('INVOICE_STATUS_CHANGED');
+      }
+
+      // Update attached registrations to PAID status
+      for (const item of invoice.items) {
+        await tx.registration.update({
+          where: {
+            id: item.registrationId,
+          },
+          data: {
+            status: 'PAID',
+            paymentConfirmedAt: now,
+            paymentConfirmedById: admin.id,
+          },
+        });
+      }
+
+      return {
+        invoiceId: invoice.id,
+        registrationCount: invoice.items.length,
+      };
+    });
+
+    revalidatePath('/admin/collective-invoices');
+    revalidatePath('/admin/registration-requests');
+    revalidatePath('/admin/registrations');
+    revalidatePath('/ambassador');
+
+    return {
+      success: true,
+      message: 'Payment confirmed successfully.',
+      data: result,
+    };
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+
+    const messages: Record<string, string> = {
+      INVOICE_NOT_FOUND: 'Invoice not found.',
+      INVOICE_ALREADY_PAID: 'This invoice has already been paid.',
+      INVOICE_HAS_NO_ITEMS: 'This invoice has no registrations.',
+      REGISTRATION_NOT_FOUND:
+        'A registration linked to this invoice could not be found.',
+      INVOICE_CONTAINS_INELIGIBLE_REGISTRATION:
+        'This invoice contains a registration that is not eligible for payment confirmation.',
+      REGISTRATION_ALREADY_PAID:
+        'A linked registration is already marked as paid. Review the invoice before continuing.',
+      INVOICE_STATUS_CHANGED:
+        'The invoice status changed. Refresh the page and review it again.',
+    };
+
+    return {
+      success: false,
+      message: messages[code] ?? 'Unable to confirm payment.',
+    };
+  }
+}
+
+export const confirmCollectiveInvoicePayment = confirmCollectiveInvoicePaymentAction;
+
 export async function getCollectiveInvoiceItemsAction(collectiveInvoiceId: string) {
   await requireSuperAdmin();
 
@@ -301,6 +432,8 @@ export async function getCollectiveInvoiceItemsAction(collectiveInvoiceId: strin
       registration: {
         select: {
           id: true,
+          status: true,
+          reviewStatus: true,
           event: { select: { name: true } },
           participant: { select: { fullName: true, email: true, cnic: true } },
           team: { select: { name: true } },
@@ -319,8 +452,11 @@ export async function getCollectiveInvoiceItemsAction(collectiveInvoiceId: strin
       item.registration.team?.name ||
       'N/A',
     participantEmail: item.registration.participant?.email || 'N/A',
+    reviewStatus: item.registration.reviewStatus,
+    paymentStatus: item.registration.status,
     baseAmount: Number(item.baseAmount),
     discountAmount: Number(item.discountAmount),
     finalAmount: Number(item.finalAmount),
   }));
 }
+
