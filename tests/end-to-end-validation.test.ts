@@ -2,6 +2,7 @@ import { canTransitionRegistration, validateRegistrationTransition } from '../li
 import { WhatsAppNotificationProvider } from '../lib/notifications/providers/whatsapp';
 import { EmailNotificationProvider } from '../lib/notifications/providers/email';
 import { dispatchNotification } from '../lib/notifications/dispatch';
+import { parseEnv } from '../lib/env';
 
 async function runTests() {
   console.log('=== KISHWAR END-TO-END VALIDATION TEST SUITE ===\n');
@@ -19,8 +20,20 @@ async function runTests() {
     }
   }
 
-  // 1. Transition Rules Tests
-  console.log('--- Testing Transition Rules ---');
+  // 1. Environment Variable Parsing Test
+  console.log('--- Testing Environment Validation ---');
+  try {
+    const config = parseEnv();
+    assert(
+      typeof config.DATABASE_URL === 'string' && config.DATABASE_URL.length > 0,
+      'DATABASE_URL is correctly parsed and non-empty'
+    );
+  } catch (err: any) {
+    assert(false, `Environment parsing threw error: ${err?.message}`);
+  }
+
+  // 2. Transition Rules Tests
+  console.log('\n--- Testing Transition Rules ---');
 
   const pendingContext = {
     status: 'PENDING',
@@ -94,7 +107,7 @@ async function runTests() {
     'Paid registration can transition to VERIFY status'
   );
 
-  // 2. Phone Number Formatter Tests
+  // 3. Phone Number Formatter Tests
   console.log('\n--- Testing WhatsApp Phone Formatting ---');
   const wa = new WhatsAppNotificationProvider();
 
@@ -108,7 +121,7 @@ async function runTests() {
     'Cleans spaces and special chars from +92 300 1234567'
   );
 
-  // 3. Provider Adapter Fallback Tests
+  // 4. Provider Adapter Fallback Tests
   console.log('\n--- Testing Notification Provider Fallbacks ---');
   const emailProvider = new EmailNotificationProvider();
 
@@ -138,7 +151,7 @@ async function runTests() {
     'Unconfigured WhatsApp provider safely returns skipped status without throwing error'
   );
 
-  // 4. Notification Dispatcher & Idempotency Lock Tests
+  // 5. Notification Dispatcher & Idempotency Lock Tests
   console.log('\n--- Testing Notification Idempotency ---');
   const testKey = `test_idem_${Date.now()}`;
 
