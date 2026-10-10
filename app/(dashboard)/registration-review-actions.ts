@@ -11,6 +11,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 export type ReviewQueueEvidence = {
   id: string;
   type: "STUDENT_DOCUMENT" | "PAYMENT_PROOF";
+  reviewStatus: string;
   signedUrl: string | null;
   originalFileName: string | null;
 };
@@ -69,7 +70,7 @@ export async function reviewRegistrationAction(
   audience: "AMBASSADOR" | "ADMIN",
   rejectionReason?: string
 ) {
-  const { ambassadorId } = await requireReviewAccess(audience);
+  const { user, ambassadorId } = await requireReviewAccess(audience);
 
   if (!registrationId) {
     throw new Error("Registration ID is required.");
@@ -130,7 +131,33 @@ export async function reviewRegistrationAction(
         },
       });
 
+      await tx.registrationEvidence.updateMany({
+        where: { registrationId: registration.id },
+        data: {
+          reviewStatus: "REJECTED",
+          reviewedByUserId: user.id,
+          reviewedAt: new Date(),
+        },
+      });
+
       return;
+    }
+
+    // Check evidence requirements for approval
+    const evidenceRecords = await tx.registrationEvidence.findMany({
+      where: { registrationId: registration.id },
+      select: { type: true },
+    });
+
+    const hasStudentDoc = evidenceRecords.some((e) => e.type === "STUDENT_DOCUMENT");
+    const hasPaymentProof = evidenceRecords.some((e) => e.type === "PAYMENT_PROOF");
+
+    if (!hasStudentDoc) {
+      throw new Error("Cannot approve registration: Required student ID evidence is missing.");
+    }
+
+    if (audience === "ADMIN" && !hasPaymentProof) {
+      throw new Error("Cannot approve registration: Required payment screenshot is missing for independent Admin review.");
     }
 
     // Serialize approvals for the same event so two reviewers
@@ -171,8 +198,14 @@ export async function reviewRegistrationAction(
       },
     });
 
-    // Deliberately do not create an Invoice here.
-    // Collective invoicing is a later implementation chunk.
+    await tx.registrationEvidence.updateMany({
+      where: { registrationId: registration.id },
+      data: {
+        reviewStatus: "VERIFIED",
+        reviewedByUserId: user.id,
+        reviewedAt: new Date(),
+      },
+    });
   });
 
   revalidatePath("/ambassador");
@@ -248,6 +281,7 @@ export async function getPendingEventRegistrationsAction(
         select: {
           id: true,
           type: true,
+          reviewStatus: true,
           storagePath: true,
           originalFileName: true,
         },
@@ -266,15 +300,20 @@ export async function getPendingEventRegistrationsAction(
         reg.evidence.map(async (ev) => {
           let signedUrl: string | null = null;
           if (ev.storagePath) {
-            const { data } = await supabase.storage
-              .from("kishwar-registration-evidence")
-              .createSignedUrl(ev.storagePath, 3600);
-            signedUrl = data?.signedUrl ?? null;
+            try {
+              const { data } = await supabase.storage
+                .from("kishwar-registration-evidence")
+                .createSignedUrl(ev.storagePath, 3600);
+              signedUrl = data?.signedUrl ?? null;
+            } catch {
+              signedUrl = null;
+            }
           }
 
           return {
             id: ev.id,
             type: ev.type,
+            reviewStatus: ev.reviewStatus,
             signedUrl,
             originalFileName: ev.originalFileName,
           };

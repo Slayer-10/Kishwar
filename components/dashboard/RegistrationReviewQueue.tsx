@@ -26,7 +26,7 @@ export function RegistrationReviewQueue({ audience, initialSummaries }: Props) {
   const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(new Set());
   const [cachedEventData, setCachedEventData] = useState<Record<string, ReviewQueueItem[]>>({});
   const [loadingEventIds, setLoadingEventIds] = useState<Set<string>>(new Set());
-  
+
   const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({});
   const [actionState, setActionState] = useState<Record<string, { loading: boolean; error?: string; success?: string }>>({});
 
@@ -129,7 +129,7 @@ export function RegistrationReviewQueue({ audience, initialSummaries }: Props) {
 
   if (summaries.length === 0) {
     return (
-      <div className="bg-white border rounded-xl p-8 text-center text-gray-500 shadow-sm">
+      <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-500 shadow-sm">
         <svg
           className="mx-auto h-12 w-12 text-gray-400 mb-3"
           fill="none"
@@ -160,7 +160,7 @@ export function RegistrationReviewQueue({ audience, initialSummaries }: Props) {
         const isLoading = loadingEventIds.has(eventSummary.eventId);
         const registrations = cachedEventData[eventSummary.eventId] || [];
 
-        // Group registrations by University if audience is ADMIN or by default
+        // Group registrations by University
         const groupedByUniv = new Map<string, ReviewQueueItem[]>();
         for (const reg of registrations) {
           const uName = reg.participant?.universityName || "University not recorded";
@@ -293,13 +293,18 @@ export function RegistrationReviewQueue({ audience, initialSummaries }: Props) {
                               key={reg.id}
                               className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm space-y-4"
                             >
-                              {/* Top Bar: Participant Info & Waiting Status */}
+                              {/* Top Bar: Participant Info, Reg ID & Waiting Status */}
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
                                 <div>
-                                  <h4 className="text-base font-bold text-gray-900">
-                                    {reg.participant?.fullName ?? "Unknown Name"}
-                                  </h4>
-                                  <p className="text-xs text-gray-500">
+                                  <div className="flex items-center space-x-2">
+                                    <h4 className="text-base font-bold text-gray-900">
+                                      {reg.participant?.fullName ?? "Unknown Name"}
+                                    </h4>
+                                    <span className="font-mono text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200">
+                                      ID: {reg.id}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-500 mt-0.5">
                                     Registered on:{" "}
                                     {new Date(reg.createdAt).toLocaleString()}
                                   </p>
@@ -356,7 +361,7 @@ export function RegistrationReviewQueue({ audience, initialSummaries }: Props) {
                                         href={ev.signedUrl || "#"}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-medium border ${
+                                        className={`inline-flex items-center space-x-2 px-3 py-1.5 rounded text-xs font-medium border ${
                                           ev.signedUrl
                                             ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
                                             : "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
@@ -379,6 +384,9 @@ export function RegistrationReviewQueue({ audience, initialSummaries }: Props) {
                                           {ev.type === "STUDENT_DOCUMENT"
                                             ? "Student ID Evidence"
                                             : "Payment Screenshot"}
+                                        </span>
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-gray-200 text-gray-700 uppercase">
+                                          {ev.reviewStatus}
                                         </span>
                                       </a>
                                     ))
