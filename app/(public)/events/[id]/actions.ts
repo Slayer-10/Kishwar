@@ -258,6 +258,7 @@ export async function submitPublicIndividualRegistrationAction(
         status: true,
         deadline: true,
         registrationType: true,
+        seatCapacity: true,
       },
     });
 
@@ -281,6 +282,22 @@ export async function submitPublicIndividualRegistrationAction(
       throw new PublicRegistrationError(
         'This event requires team registration. Please use the team registration process.'
       );
+    }
+
+    if (event.seatCapacity !== null) {
+      const reservedSeats = await prisma.registration.count({
+        where: {
+          eventId,
+          seatReserved: true,
+          reviewStatus: 'APPROVED',
+        },
+      });
+
+      if (reservedSeats >= event.seatCapacity) {
+        throw new PublicRegistrationError(
+          'All seats for this event have already been reserved.'
+        );
+      }
     }
 
     const university = otherUniversityName
@@ -332,7 +349,11 @@ export async function submitPublicIndividualRegistrationAction(
     }
 
     await prisma.$transaction(async (tx) => {
-      // Recheck the event inside the transaction.
+      // Recheck the event inside the transaction while holding per-event lock.
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
+      `;
+
       const currentEvent = await tx.event.findUnique({
         where: { id: eventId },
         select: {
@@ -340,6 +361,7 @@ export async function submitPublicIndividualRegistrationAction(
           status: true,
           deadline: true,
           registrationType: true,
+          seatCapacity: true,
         },
       });
 
@@ -354,13 +376,21 @@ export async function submitPublicIndividualRegistrationAction(
         );
       }
 
-      // Serialize same-event submissions for the same identity. This avoids
-      // two simultaneous requests bypassing the duplicate check.
-      const lockKey = `${eventId}:${normalizedCnic}`;
+      if (currentEvent.seatCapacity !== null) {
+        const reservedSeats = await tx.registration.count({
+          where: {
+            eventId,
+            seatReserved: true,
+            reviewStatus: 'APPROVED',
+          },
+        });
 
-      await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
-      `;
+        if (reservedSeats >= currentEvent.seatCapacity) {
+          throw new PublicRegistrationError(
+            'All seats for this event have already been reserved.'
+          );
+        }
+      }
 
       const existingRegistration = await tx.registration.findFirst({
         where: {

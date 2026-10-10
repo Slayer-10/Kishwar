@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { label: 'Universities', href: '/admin/universities' },
   { label: 'Ambassadors', href: '/admin/ambassadors' },
   { label: 'Ambassador Requests', href: '/admin/ambassador-requests' },
+  { label: 'Registration Requests', href: '/admin/registration-requests' },
   { label: 'Registrations', href: '/admin/registrations' },
   { label: 'Payments', href: '/admin/payments' },
   { label: 'Announcements', href: '/admin/announcements' },

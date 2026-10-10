@@ -109,16 +109,10 @@ export async function registerParticipantAction(formData: FormData) {
       eventId,
       participantId: participant.id,
       ambassadorId: user.ambassador!.id,
-    },
-  });
-
-  await prisma.invoice.create({
-    data: {
-      registrationId: registration.id,
-      invoiceNumber: `INV-${randomUUID()
-        .slice(0, 8)
-        .toUpperCase()}`,
-      amount: event.registrationFee,
+      source: 'AMBASSADOR',
+      reviewStatus: 'APPROVED',
+      seatReserved: true,
+      ambassadorApprovedAt: new Date(),
     },
   });
 
@@ -339,16 +333,10 @@ export async function registerTeamAction(formData: FormData) {
       eventId,
       teamId: team.id,
       ambassadorId: ambassador.id,
-    },
-  });
-
-  await prisma.invoice.create({
-    data: {
-      registrationId: registration.id,
-      invoiceNumber: `INV-${randomUUID()
-        .slice(0, 8)
-        .toUpperCase()}`,
-      amount: event.registrationFee,
+      source: 'AMBASSADOR',
+      reviewStatus: 'APPROVED',
+      seatReserved: true,
+      ambassadorApprovedAt: new Date(),
     },
   });
 
@@ -425,14 +413,10 @@ export async function registerSelfAction(formData: FormData) {
       eventId,
       participantId: participant.id,
       ambassadorId: user.ambassador!.id,
-    },
-  });
-
-  await prisma.invoice.create({
-    data: {
-      registrationId: registration.id,
-      invoiceNumber: `INV-${randomUUID().slice(0, 8).toUpperCase()}`,
-      amount: event.registrationFee,
+      source: 'AMBASSADOR',
+      reviewStatus: 'APPROVED',
+      seatReserved: true,
+      ambassadorApprovedAt: new Date(),
     },
   });
 

@@ -1,0 +1,312 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
+import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { reserveApprovedSeat } from "@/lib/registration-review";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+
+export type ReviewQueueEvidence = {
+  id: string;
+  type: "STUDENT_DOCUMENT" | "PAYMENT_PROOF";
+  signedUrl: string | null;
+  originalFileName: string | null;
+};
+
+export type ReviewQueueItem = {
+  id: string;
+  eventId: string;
+  eventName: string;
+  source: string;
+  reviewStatus: string;
+  accommodationSelection: string;
+  accommodationGender: string | null;
+  createdAt: string;
+  ambassadorId: string | null;
+  participant: {
+    id: string;
+    fullName: string;
+    email: string;
+    phone: string | null;
+    cnic: string | null;
+    universityId: string | null;
+    universityName: string;
+  } | null;
+  evidence: ReviewQueueEvidence[];
+};
+
+async function requireReviewAccess(audience: "AMBASSADOR" | "ADMIN") {
+  const user = await getCurrentUser();
+
+  if (!user) redirect("/login");
+
+  if (audience === "AMBASSADOR") {
+    if (user.role !== "AMBASSADOR" || !user.ambassador) {
+      redirect("/login");
+    }
+
+    return {
+      user,
+      ambassadorId: user.ambassador.id,
+    };
+  }
+
+  if (user.role !== "SUPER_ADMIN") {
+    redirect("/login");
+  }
+
+  return {
+    user,
+    ambassadorId: null,
+  };
+}
+
+export async function reviewRegistrationAction(
+  registrationId: string,
+  decision: "APPROVE" | "REJECT",
+  audience: "AMBASSADOR" | "ADMIN",
+  rejectionReason?: string
+) {
+  const { ambassadorId } = await requireReviewAccess(audience);
+
+  if (!registrationId) {
+    throw new Error("Registration ID is required.");
+  }
+
+  if (decision === "REJECT" && !rejectionReason?.trim()) {
+    throw new Error("Please provide a rejection reason.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const registration = await tx.registration.findUnique({
+      where: { id: registrationId },
+      select: {
+        id: true,
+        eventId: true,
+        ambassadorId: true,
+        source: true,
+        reviewStatus: true,
+      },
+    });
+
+    if (!registration || registration.source !== "PUBLIC") {
+      throw new Error("Registration not found.");
+    }
+
+    if (
+      audience === "AMBASSADOR" &&
+      (
+        registration.ambassadorId !== ambassadorId ||
+        registration.reviewStatus !== "PENDING_AMBASSADOR"
+      )
+    ) {
+      throw new Error(
+        "This request is not pending with your Ambassador account."
+      );
+    }
+
+    if (
+      audience === "ADMIN" &&
+      (
+        registration.ambassadorId !== null ||
+        registration.reviewStatus !== "PENDING_ADMIN"
+      )
+    ) {
+      throw new Error(
+        "This request is not pending in the Admin queue."
+      );
+    }
+
+    if (decision === "REJECT") {
+      await tx.registration.update({
+        where: { id: registration.id },
+        data: {
+          reviewStatus: "REJECTED",
+          status: "REJECTED",
+          seatReserved: false,
+          rejectionReason: rejectionReason!.trim().slice(0, 1000),
+        },
+      });
+
+      return;
+    }
+
+    // Serialize approvals for the same event so two reviewers
+    // cannot reserve the final seat simultaneously.
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${registration.eventId}, 0)
+      )
+    `;
+
+    // Recheck after acquiring the event lock.
+    const current = await tx.registration.findUnique({
+      where: { id: registration.id },
+      select: { reviewStatus: true },
+    });
+
+    const expectedStatus =
+      audience === "AMBASSADOR"
+        ? "PENDING_AMBASSADOR"
+        : "PENDING_ADMIN";
+
+    if (current?.reviewStatus !== expectedStatus) {
+      throw new Error("This request has already been reviewed.");
+    }
+
+    await reserveApprovedSeat(tx, registration.eventId);
+
+    await tx.registration.update({
+      where: { id: registration.id },
+      data: {
+        reviewStatus: "APPROVED",
+        status: "PENDING",
+        seatReserved: true,
+        rejectionReason: null,
+        ...(audience === "AMBASSADOR"
+          ? { ambassadorApprovedAt: new Date() }
+          : { adminApprovedAt: new Date() }),
+      },
+    });
+
+    // Deliberately do not create an Invoice here.
+    // Collective invoicing is a later implementation chunk.
+  });
+
+  revalidatePath("/ambassador");
+  revalidatePath("/ambassador/requests");
+  revalidatePath("/admin");
+  revalidatePath("/admin/registration-requests");
+  revalidatePath("/admin/registrations");
+
+  return {
+    success: decision === "APPROVE"
+      ? "Registration approved and its seat reserved."
+      : "Registration rejected.",
+  };
+}
+
+export async function getPendingEventRegistrationsAction(
+  eventId: string,
+  audience: "AMBASSADOR" | "ADMIN"
+): Promise<ReviewQueueItem[]> {
+  const { ambassadorId } = await requireReviewAccess(audience);
+
+  if (!eventId) {
+    throw new Error("Event ID is required.");
+  }
+
+  const where =
+    audience === "AMBASSADOR"
+      ? {
+          eventId,
+          source: "PUBLIC" as const,
+          reviewStatus: "PENDING_AMBASSADOR" as const,
+          ambassadorId: ambassadorId!,
+        }
+      : {
+          eventId,
+          source: "PUBLIC" as const,
+          reviewStatus: "PENDING_ADMIN" as const,
+          ambassadorId: null,
+        };
+
+  const registrations = await prisma.registration.findMany({
+    where,
+    select: {
+      id: true,
+      eventId: true,
+      source: true,
+      reviewStatus: true,
+      accommodationSelection: true,
+      accommodationGender: true,
+      createdAt: true,
+      ambassadorId: true,
+      event: {
+        select: {
+          name: true,
+        },
+      },
+      participant: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          cnic: true,
+          universityId: true,
+          university: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      evidence: {
+        select: {
+          id: true,
+          type: true,
+          storagePath: true,
+          originalFileName: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+
+  const supabase = createSupabaseAdminClient();
+
+  const items: ReviewQueueItem[] = await Promise.all(
+    registrations.map(async (reg) => {
+      const evidenceList: ReviewQueueEvidence[] = await Promise.all(
+        reg.evidence.map(async (ev) => {
+          let signedUrl: string | null = null;
+          if (ev.storagePath) {
+            const { data } = await supabase.storage
+              .from("kishwar-registration-evidence")
+              .createSignedUrl(ev.storagePath, 3600);
+            signedUrl = data?.signedUrl ?? null;
+          }
+
+          return {
+            id: ev.id,
+            type: ev.type,
+            signedUrl,
+            originalFileName: ev.originalFileName,
+          };
+        })
+      );
+
+      return {
+        id: reg.id,
+        eventId: reg.eventId,
+        eventName: reg.event.name,
+        source: reg.source,
+        reviewStatus: reg.reviewStatus,
+        accommodationSelection: reg.accommodationSelection,
+        accommodationGender: reg.accommodationGender,
+        createdAt: reg.createdAt.toISOString(),
+        ambassadorId: reg.ambassadorId,
+        participant: reg.participant
+          ? {
+              id: reg.participant.id,
+              fullName: reg.participant.fullName,
+              email: reg.participant.email,
+              phone: reg.participant.phone,
+              cnic: reg.participant.cnic,
+              universityId: reg.participant.universityId,
+              universityName:
+                reg.participant.university?.name ?? "University not recorded",
+            }
+          : null,
+        evidence: evidenceList,
+      };
+    })
+  );
+
+  return items;
+}

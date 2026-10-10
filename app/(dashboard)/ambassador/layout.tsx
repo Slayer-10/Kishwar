@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 const NAV_ITEMS = [
   { label: 'Ambassador Registrations', href: '/ambassador' },
+  { label: 'Registration Requests', href: '/ambassador/requests' },
   { label: 'Participants', href: '/ambassador/participants' },
   { label: 'My Registrations', href: '/ambassador/my-registrations' },
   { label: 'Campus Payments', href: '/ambassador/payments' },
