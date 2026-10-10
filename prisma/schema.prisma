@@ -61,6 +61,34 @@ enum AmbassadorRequestStatus {
   REJECTED
 }
 
+enum RegistrationReviewStatus {
+  PENDING_AMBASSADOR
+  PENDING_ADMIN
+  APPROVED
+  REJECTED
+}
+
+enum RegistrationSource {
+  PUBLIC
+  AMBASSADOR
+}
+
+enum RegistrationEvidenceType {
+  STUDENT_DOCUMENT
+  PAYMENT_PROOF
+}
+
+enum EvidenceReviewStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum AccommodationSelection {
+  NONE_OR_ALREADY_ARRANGED
+  THREE_DAY_STAY_WITH_FOOD
+}
+
 model User {
   id           String   @id
   email        String   @unique
@@ -70,14 +98,16 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  ambassador             Ambassador?
-  fdo                    FDO?
-  participant            Participant?
-  verifiedPayments       Payment[]       @relation("PaymentVerifiedBy")
-  verifiedCampusPayments CampusPayment[] @relation("CampusPaymentVerifiedBy")
-  auditLogs              AuditLog[]
-
-  ambassadorRequests AmbassadorRequest[] @relation("AmbassadorRequestReviewer")
+  ambassador                   Ambassador?
+  fdo                          FDO?
+  participant                  Participant?
+  verifiedPayments             Payment[]              @relation("PaymentVerifiedBy")
+  verifiedCampusPayments       CampusPayment[]        @relation("CampusPaymentVerifiedBy")
+  auditLogs                    AuditLog[]
+  ambassadorRequests           AmbassadorRequest[]    @relation("AmbassadorRequestReviewer")
+  collectiveInvoicesGenerated  CollectiveInvoice[]    @relation("CollectiveInvoiceGeneratedBy")
+  uploadedRegistrationEvidence RegistrationEvidence[] @relation("RegistrationEvidenceUploadedBy")
+  reviewedRegistrationEvidence RegistrationEvidence[] @relation("RegistrationEvidenceReviewedBy")
 
   @@index([role])
 }
@@ -103,9 +133,10 @@ model Ambassador {
   ambassadorCode String     @unique
   assignedAt     DateTime   @default(now())
 
-  teams          Team[]
-  registrations  Registration[]
-  campusPayments CampusPayment[]
+  teams              Team[]
+  registrations      Registration[]
+  campusPayments     CampusPayment[]
+  collectiveInvoices CollectiveInvoice[]
 
   @@index([universityId])
 }
@@ -119,24 +150,27 @@ model FDO {
 }
 
 model Participant {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id])
-  fullName  String
-  email     String   @unique
-  phone     String?
-  cnic      String?
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  userId         String?  @unique
+  user           User?    @relation(fields: [userId], references: [id])
+  fullName       String
+  email          String   @unique
+  phone          String?
+  cnic           String?
+  normalizedCnic String?
+  createdAt      DateTime @default(now())
 
   universityId String?
   university   University? @relation(fields: [universityId], references: [id])
 
-  captainOfTeams     Team[]              @relation("TeamCaptain")
-  teamMemberships    TeamMember[]
-  registrations      Registration[]
-  ambassadorRequests AmbassadorRequest[]
+  captainOfTeams       Team[]                 @relation("TeamCaptain")
+  teamMemberships      TeamMember[]
+  registrations        Registration[]
+  ambassadorRequests   AmbassadorRequest[]
+  registrationEvidence RegistrationEvidence[]
 
   @@index([universityId])
+  @@index([normalizedCnic])
 }
 
 model AmbassadorRequest {
@@ -212,6 +246,7 @@ model Event {
   registrationType RegistrationType
   minTeamSize      Int?
   maxTeamSize      Int?
+  seatCapacity     Int?
   deadline         DateTime
   eventDate        DateTime
   venue            String?
@@ -219,8 +254,9 @@ model Event {
   status           EventStatus      @default(DRAFT)
   createdAt        DateTime         @default(now())
 
-  teams         Team[]
-  registrations Registration[]
+  teams              Team[]
+  registrations      Registration[]
+  collectiveInvoices CollectiveInvoice[]
 
   @@index([status])
 }
@@ -237,18 +273,65 @@ model Registration {
   ambassadorId String?
   ambassador   Ambassador? @relation(fields: [ambassadorId], references: [id])
 
-  status    RegistrationStatus @default(PENDING)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  status                 RegistrationStatus       @default(PENDING)
+  reviewStatus           RegistrationReviewStatus @default(PENDING_ADMIN)
+  source                 RegistrationSource       @default(PUBLIC)
+  seatReserved           Boolean                  @default(false)
+  accommodationSelection AccommodationSelection   @default(NONE_OR_ALREADY_ARRANGED)
+  accommodationGender    String?
+  accommodationFee       Decimal?                 @db.Decimal(10, 2)
+  ambassadorApprovedAt   DateTime?
+  adminApprovedAt        DateTime?
+  rejectionReason        String?
 
-  invoice Invoice?
-  ticket  Ticket?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice               Invoice?
+  ticket                Ticket?
+  evidence              RegistrationEvidence[]
+  collectiveInvoiceItem CollectiveInvoiceItem?
 
   @@index([eventId])
   @@index([status])
   @@index([participantId])
   @@index([teamId])
   @@index([ambassadorId])
+  @@index([reviewStatus])
+  @@index([seatReserved, eventId])
+  @@index([source])
+}
+
+model RegistrationEvidence {
+  id String @id @default(uuid())
+
+  registrationId String
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  participantId String?
+  participant   Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  type         RegistrationEvidenceType
+  reviewStatus EvidenceReviewStatus     @default(PENDING)
+
+  storagePath      String
+  originalFileName String?
+  contentType      String?
+  byteSize         BigInt?
+
+  uploadedByUserId String?
+  uploadedBy       User?   @relation("RegistrationEvidenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  reviewedByUserId String?
+  reviewedBy       User?   @relation("RegistrationEvidenceReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  uploadedAt DateTime  @default(now())
+  reviewedAt DateTime?
+
+  @@index([registrationId])
+  @@index([participantId])
+  @@index([type, reviewStatus])
+  @@index([reviewedByUserId])
 }
 
 model Invoice {
@@ -266,6 +349,69 @@ model Invoice {
   payments Payment[]
 
   @@index([campusPaymentId])
+}
+
+model CollectiveInvoice {
+  id String @id @default(uuid())
+
+  ambassadorId String
+  ambassador   Ambassador @relation(fields: [ambassadorId], references: [id], onDelete: Restrict)
+
+  scopeKey      String
+  invoiceNumber String @unique
+
+  status InvoiceStatus @default(PENDING)
+
+  subtotal        Decimal @db.Decimal(10, 2)
+  discountPercent Decimal @db.Decimal(5, 2)
+  discountAmount  Decimal @db.Decimal(10, 2)
+  totalAmount     Decimal @db.Decimal(10, 2)
+
+  generatedById String
+  generatedBy   User   @relation("CollectiveInvoiceGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items   CollectiveInvoiceItem[]
+  Event   Event?                  @relation(fields: [eventId], references: [id])
+  eventId String?
+
+  @@unique([ambassadorId, scopeKey])
+  @@index([ambassadorId, status])
+  @@index([status, createdAt])
+}
+
+model CollectiveInvoiceItem {
+  id String @id @default(uuid())
+
+  collectiveInvoiceId String
+  collectiveInvoice   CollectiveInvoice @relation(fields: [collectiveInvoiceId], references: [id], onDelete: Restrict)
+
+  registrationId String       @unique
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+
+  baseAmount     Decimal @db.Decimal(10, 2)
+  discountAmount Decimal @db.Decimal(10, 2)
+  finalAmount    Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([collectiveInvoiceId])
+}
+
+model DiscountTier {
+  id String @id @default(uuid())
+
+  name                 String  @unique
+  minimumRegistrations Int     @unique
+  discountPercent      Decimal @db.Decimal(5, 2)
+  isActive             Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, minimumRegistrations])
 }
 
 model CampusPayment {
