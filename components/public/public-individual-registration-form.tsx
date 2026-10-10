@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useState } from 'react';
+import { useFormState, useFormStatus } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import {
   submitPublicIndividualRegistrationAction,
@@ -22,7 +23,7 @@ export function PublicIndividualRegistrationForm({
   eventId: string;
   universities: UniversityOption[];
 }) {
-  const [state, action, pending] = useActionState(
+  const [state, action] = useFormState(
     submitPublicIndividualRegistrationAction,
     initialState
   );
@@ -276,19 +277,26 @@ export function PublicIndividualRegistrationForm({
         </p>
       )}
 
-      <Button
-        type="submit"
-        variant="primary"
-        className="w-full mt-2"
-        disabled={pending}
-      >
-        {pending ? 'Submitting…' : 'Submit Registration'}
-      </Button>
+      <SubmitButton />
 
       <p className="text-xs text-[var(--color-text-muted)]">
         Your documents are stored privately. Submission does not reserve a seat
         and does not generate an invoice.
       </p>
     </form>
+  );
+}
+
+function SubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button
+      type="submit"
+      variant="primary"
+      className="w-full mt-2"
+      disabled={pending}
+    >
+      {pending ? 'Submitting…' : 'Submit Registration'}
+    </Button>
   );
 }
