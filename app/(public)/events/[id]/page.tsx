@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { AmbassadorRegisterForm } from '@/components/public/ambassador-register-form';
 import { AmbassadorTeamRegisterForm } from '@/components/public/ambassador-team-register-form';
 import { AmbassadorSelfRegisterForm } from '@/components/public/ambassador-self-register-form';
+import { PublicIndividualRegistrationForm } from '@/components/public/public-individual-registration-form';
 
 export default async function PublicEventDetailPage({
   params,
@@ -25,6 +26,25 @@ export default async function PublicEventDetailPage({
   if (!event || event.status === 'DRAFT' || event.status === 'CANCELLED') {
     notFound();
   }
+
+  const universities = await prisma.university.findMany({
+    orderBy: { name: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      ambassadors: {
+        where: { user: { isActive: true } },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  });
+
+  const publicUniversityOptions = universities.map((university) => ({
+    id: university.id,
+    name: university.name,
+    hasActiveAmbassador: university.ambassadors.length > 0,
+  }));
 
   const categoryColor = getCategoryColor(event.category);
   const formattedEventDate = new Date(event.eventDate).toLocaleDateString(undefined, {
@@ -265,26 +285,19 @@ export default async function PublicEventDetailPage({
                       Registration
                     </h3>
 
-                    {!user && (
-                      <div className="flex flex-col gap-3">
-                        <p className="text-sm text-[var(--color-text-muted)]">
-                          Log in to continue with event registration.
-                        </p>
-                        <Button href="/login" variant="primary" className="w-full">
-                          Login to Register
-                        </Button>
-                      </div>
-                    )}
+                    {event.registrationType !== 'TEAM' &&
+                      user?.role !== 'AMBASSADOR' && (
+                        <PublicIndividualRegistrationForm
+                          eventId={event.id}
+                          universities={publicUniversityOptions}
+                        />
+                      )}
 
-                    {user?.role === 'PARTICIPANT' && (
-                      <div className="flex flex-col gap-3">
-                        <p className="text-sm text-[var(--color-text-muted)]">
-                          Event registration is handled by authorized KISHWAR Ambassadors.
-                        </p>
-                        <Button href="/participant/ambassador-application" variant="primary" className="w-full">
-                          Ask Ambassador to Register
-                        </Button>
-                      </div>
+                    {event.registrationType === 'TEAM' && user?.role !== 'AMBASSADOR' && (
+                      <p className="text-sm text-[var(--color-text-muted)]">
+                        This event requires team registration. Public team registration will be
+                        enabled in the team-registration implementation chunk.
+                      </p>
                     )}
 
                     {user?.role === 'AMBASSADOR' && (
