@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { label: 'Ambassadors', href: '/admin/ambassadors' },
   { label: 'Ambassador Requests', href: '/admin/ambassador-requests' },
   { label: 'Registration Requests', href: '/admin/registration-requests' },
+  { label: 'Collective Invoices', href: '/admin/collective-invoices' },
   { label: 'Registrations', href: '/admin/registrations' },
   { label: 'Payments', href: '/admin/payments' },
   { label: 'Announcements', href: '/admin/announcements' },
