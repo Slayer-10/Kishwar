@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
+import { dispatchNotification } from '@/lib/notifications/dispatch';
 
 async function requireSuperAdmin() {
   const user = await getCurrentUser();
@@ -178,7 +179,7 @@ export async function generateCollectiveInvoicesAction(_formData?: FormData): Pr
   const entries = Array.from(grouped.entries());
 
   for (const [ambassadorId, registrations] of entries) {
-    await prisma.$transaction(async (tx) => {
+    const createdInvoice = await prisma.$transaction(async (tx) => {
       const fresh = await tx.registration.findMany({
         where: {
           id: { in: registrations.map((registration) => registration.id) },
@@ -276,7 +277,36 @@ export async function generateCollectiveInvoicesAction(_formData?: FormData): Pr
           finalAmount: item.finalAmount,
         })),
       });
+
+      return {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        totalAmount: freshTotal,
+        ambassadorId,
+      };
     });
+
+    if (createdInvoice) {
+      try {
+        const ambassadorUser = await prisma.ambassador.findUnique({
+          where: { id: ambassadorId },
+          select: { user: { select: { email: true } } },
+        });
+
+        if (ambassadorUser?.user.email) {
+          await dispatchNotification({
+            event: 'invoice_generated',
+            recipientName: ambassadorUser.user.email,
+            recipientEmail: ambassadorUser.user.email,
+            subject: `Collective Invoice Generated - ${createdInvoice.invoiceNumber}`,
+            message: `A collective invoice (${createdInvoice.invoiceNumber}) for PKR ${createdInvoice.totalAmount.toFixed(2)} has been generated for your university registrations.`,
+            idempotencyKey: `inv_${createdInvoice.id}`,
+          });
+        }
+      } catch (err) {
+        console.error('[generateCollectiveInvoicesAction] Notification error:', err);
+      }
+    }
   }
 
   revalidatePath('/admin/collective-invoices');
@@ -383,6 +413,31 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
     revalidatePath('/admin/registration-requests');
     revalidatePath('/admin/registrations');
     revalidatePath('/ambassador');
+
+    // Trigger notification after transaction succeeds
+    try {
+      const updatedInv = await prisma.collectiveInvoice.findUnique({
+        where: { id: invoiceId },
+        select: {
+          invoiceNumber: true,
+          totalAmount: true,
+          ambassador: { select: { user: { select: { email: true } } } },
+        },
+      });
+
+      if (updatedInv?.ambassador.user.email) {
+        await dispatchNotification({
+          event: 'payment_confirmed',
+          recipientName: updatedInv.ambassador.user.email,
+          recipientEmail: updatedInv.ambassador.user.email,
+          subject: `Payment Confirmed - Invoice ${updatedInv.invoiceNumber}`,
+          message: `Payment for collective invoice ${updatedInv.invoiceNumber} (PKR ${Number(updatedInv.totalAmount).toFixed(2)}) has been confirmed by Kishwar Admin. Included registrations are now verified.`,
+          idempotencyKey: `pay_${invoiceId}`,
+        });
+      }
+    } catch (notifyErr) {
+      console.error('[confirmCollectiveInvoicePaymentAction] Notification error:', notifyErr);
+    }
 
     return {
       success: true,

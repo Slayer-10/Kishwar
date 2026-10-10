@@ -495,3 +495,18 @@ model AuditLog {
   @@index([userId])
   @@index([targetTable, targetId])
 }
+
+model NotificationLog {
+  id             String   @id @default(uuid())
+  idempotencyKey String   @unique
+  event          String
+  channel        String
+  recipient      String
+  status         String
+  error          String?
+  createdAt      DateTime @default(now())
+
+  @@index([idempotencyKey])
+  @@index([event, recipient])
+}
+

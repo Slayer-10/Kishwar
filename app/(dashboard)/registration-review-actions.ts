@@ -7,6 +7,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { reserveApprovedSeat } from "@/lib/registration-review";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { dispatchNotification } from "@/lib/notifications/dispatch";
+import { validateRegistrationTransition } from "@/lib/registrations/transition-rules";
 
 export type ReviewQueueEvidence = {
   id: string;
@@ -213,6 +215,48 @@ export async function reviewRegistrationAction(
   revalidatePath("/admin");
   revalidatePath("/admin/registration-requests");
   revalidatePath("/admin/registrations");
+
+  // Fetch trusted recipient & event details after transaction completes
+  try {
+    const updatedReg = await prisma.registration.findUnique({
+      where: { id: registrationId },
+      select: {
+        id: true,
+        rejectionReason: true,
+        event: { select: { name: true } },
+        participant: { select: { fullName: true, email: true, phone: true } },
+      },
+    });
+
+    if (updatedReg?.participant) {
+      const eventName = updatedReg.event.name;
+      const participant = updatedReg.participant;
+
+      if (decision === "APPROVE") {
+        await dispatchNotification({
+          event: "registration_approved",
+          recipientName: participant.fullName,
+          recipientEmail: participant.email,
+          recipientPhone: participant.phone,
+          subject: `Registration Approved - ${eventName}`,
+          message: `Dear ${participant.fullName}, your registration for ${eventName} has been approved! Your seat is reserved.`,
+          idempotencyKey: `app_${registrationId}`,
+        });
+      } else {
+        await dispatchNotification({
+          event: "registration_rejected",
+          recipientName: participant.fullName,
+          recipientEmail: participant.email,
+          recipientPhone: participant.phone,
+          subject: `Registration Update - ${eventName}`,
+          message: `Dear ${participant.fullName}, your registration for ${eventName} was not approved. Reason: ${updatedReg.rejectionReason || "Requirements not met."}`,
+          idempotencyKey: `rej_${registrationId}`,
+        });
+      }
+    }
+  } catch (notifyErr) {
+    console.error("[reviewRegistrationAction] Notification error:", notifyErr);
+  }
 
   return {
     success: decision === "APPROVE"

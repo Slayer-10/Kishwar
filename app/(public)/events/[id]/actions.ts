@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { findOrCreateUniversity } from '@/lib/university';
+import { dispatchNotification } from '@/lib/notifications/dispatch';
 
 const EVIDENCE_BUCKET = 'kishwar-registration-evidence';
 const MAX_FILE_SIZE = 8 * 1024 * 1024;
@@ -542,6 +543,17 @@ export async function submitPublicIndividualRegistrationAction(
     revalidatePath(`/events/${eventId}`);
     revalidatePath('/admin');
     revalidatePath('/ambassador');
+
+    // Trigger notification after database transaction succeeds
+    await dispatchNotification({
+      event: 'registration_submitted',
+      recipientName: fullName,
+      recipientEmail: email,
+      recipientPhone: phone,
+      subject: `Registration Submitted - ${event.name}`,
+      message: `Dear ${fullName}, your registration for ${event.name} has been submitted successfully and is currently under review.`,
+      idempotencyKey: `sub_${email}_${eventId}`,
+    });
 
     return {
       success: initialAmbassador
