@@ -62,19 +62,20 @@ enum AmbassadorRequestStatus {
 }
 
 model User {
-  id               String     @id
-  email            String     @unique
-  passwordHash     String?
-  role             Role       @default(PARTICIPANT)
-  isActive         Boolean    @default(true)
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  id           String   @id
+  email        String   @unique
+  passwordHash String?
+  role         Role     @default(PARTICIPANT)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  ambassador       Ambassador?
-  fdo              FDO?
-  participant      Participant?
-  verifiedPayments Payment[]  @relation("PaymentVerifiedBy")
-  auditLogs        AuditLog[]
+  ambassador             Ambassador?
+  fdo                    FDO?
+  participant            Participant?
+  verifiedPayments       Payment[]       @relation("PaymentVerifiedBy")
+  verifiedCampusPayments CampusPayment[] @relation("CampusPaymentVerifiedBy")
+  auditLogs              AuditLog[]
 
   ambassadorRequests AmbassadorRequest[] @relation("AmbassadorRequestReviewer")
 
@@ -82,14 +83,15 @@ model User {
 }
 
 model University {
-  id          String       @id @default(uuid())
-  name        String       @unique
-  city        String?
-  createdAt   DateTime     @default(now())
+  id        String   @id @default(uuid())
+  name      String   @unique
+  city      String?
+  createdAt DateTime @default(now())
 
-  ambassadors Ambassador[]
-  teams       Team[]
+  ambassadors        Ambassador[]
+  teams              Team[]
   ambassadorRequests AmbassadorRequest[]
+  participants       Participant[]
 }
 
 model Ambassador {
@@ -103,6 +105,7 @@ model Ambassador {
 
   teams          Team[]
   registrations  Registration[]
+  campusPayments CampusPayment[]
 
   @@index([universityId])
 }
@@ -125,36 +128,41 @@ model Participant {
   cnic      String?
   createdAt DateTime @default(now())
 
-  captainOfTeams  Team[]               @relation("TeamCaptain")
-  teamMemberships TeamMember[]
-  registrations   Registration[]
+  universityId String?
+  university   University? @relation(fields: [universityId], references: [id])
+
+  captainOfTeams     Team[]              @relation("TeamCaptain")
+  teamMemberships    TeamMember[]
+  registrations      Registration[]
   ambassadorRequests AmbassadorRequest[]
+
+  @@index([universityId])
 }
 
 model AmbassadorRequest {
-  id            String                  @id @default(uuid())
+  id String @id @default(uuid())
 
   participantId String?
-  participant   Participant?            @relation(fields: [participantId], references: [id])
+  participant   Participant? @relation(fields: [participantId], references: [id])
 
-  fullName      String?
-  email         String?
-  phone         String?
-  gender        String?
-  cnic          String?
-  universityId  String?
-  university    University?             @relation(fields: [universityId], references: [id])
-  occupation    String?
-  degree        String?
-  semester      Int?
+  fullName       String?
+  email          String?
+  phone          String?
+  gender         String?
+  cnic           String?
+  universityId   String?
+  university     University? @relation(fields: [universityId], references: [id])
+  occupation     String?
+  degree         String?
+  semester       Int?
   studentCardUrl String?
-  message       String?
+  message        String?
 
-  reviewedById  String?
-  reviewedBy    User?                   @relation("AmbassadorRequestReviewer", fields: [reviewedById], references: [id])
-  status        AmbassadorRequestStatus @default(PENDING)
-  createdAt     DateTime                @default(now())
-  reviewedAt    DateTime?
+  reviewedById String?
+  reviewedBy   User?                   @relation("AmbassadorRequestReviewer", fields: [reviewedById], references: [id])
+  status       AmbassadorRequestStatus @default(PENDING)
+  createdAt    DateTime                @default(now())
+  reviewedAt   DateTime?
 
   @@index([email])
   @@index([participantId])
@@ -218,20 +226,20 @@ model Event {
 }
 
 model Registration {
-  id            String             @id @default(uuid())
+  id            String       @id @default(uuid())
   participantId String?
-  participant   Participant?       @relation(fields: [participantId], references: [id])
+  participant   Participant? @relation(fields: [participantId], references: [id])
   teamId        String?
-  team          Team?              @relation(fields: [teamId], references: [id])
+  team          Team?        @relation(fields: [teamId], references: [id])
   eventId       String
-  event         Event              @relation(fields: [eventId], references: [id])
+  event         Event        @relation(fields: [eventId], references: [id])
 
-  ambassadorId  String?
-  ambassador    Ambassador?        @relation(fields: [ambassadorId], references: [id])
+  ambassadorId String?
+  ambassador   Ambassador? @relation(fields: [ambassadorId], references: [id])
 
-  status        RegistrationStatus @default(PENDING)
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  status    RegistrationStatus @default(PENDING)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
   invoice Invoice?
   ticket  Ticket?
@@ -252,7 +260,31 @@ model Invoice {
   status         InvoiceStatus @default(PENDING)
   createdAt      DateTime      @default(now())
 
+  campusPaymentId String?
+  campusPayment   CampusPayment? @relation(fields: [campusPaymentId], references: [id])
+
   payments Payment[]
+
+  @@index([campusPaymentId])
+}
+
+model CampusPayment {
+  id                 String                    @id @default(uuid())
+  ambassadorId       String
+  ambassador         Ambassador                @relation(fields: [ambassadorId], references: [id])
+  totalAmount        Decimal                   @db.Decimal(10, 2)
+  method             String
+  referenceNumber    String?
+  proofUrl           String?
+  verificationStatus PaymentVerificationStatus @default(SUBMITTED)
+  verifiedBy         String?
+  verifier           User?                     @relation("CampusPaymentVerifiedBy", fields: [verifiedBy], references: [id])
+  createdAt          DateTime                  @default(now())
+
+  invoices Invoice[]
+
+  @@index([ambassadorId])
+  @@index([verificationStatus])
 }
 
 model Payment {
@@ -263,6 +295,7 @@ model Payment {
   method             String
   referenceNumber    String?
   proofUrl           String?
+  batchId            String?
   verificationStatus PaymentVerificationStatus @default(SUBMITTED)
   verifiedBy         String?
   verifier           User?                     @relation("PaymentVerifiedBy", fields: [verifiedBy], references: [id])
@@ -270,6 +303,7 @@ model Payment {
 
   @@index([invoiceId])
   @@index([verificationStatus])
+  @@index([batchId])
 }
 
 model Ticket {

@@ -77,9 +77,7 @@ export default async function PublicAmbassadorApplicationPage({
     });
   }
 
-  const universities = await prisma.university.findMany({
-    orderBy: { name: 'asc' },
-  });
+
 
   const isPending = existingRequest?.status === 'PENDING' || searchParams.submitted === '1';
 
@@ -266,17 +264,19 @@ export default async function PublicAmbassadorApplicationPage({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="universityId" className="form-label">
+                  <label htmlFor="universityName" className="form-label">
                     University *
                   </label>
-                  <select id="universityId" name="universityId" required className="form-input">
-                    <option value="">Select University</option>
-                    {universities.map((uni) => (
-                      <option key={uni.id} value={uni.id}>
-                        {uni.name} {uni.city ? `(${uni.city})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <input
+                    id="universityName"
+                    name="universityName"
+                    type="text"
+                    required
+                    minLength={2}
+                    maxLength={120}
+                    placeholder="e.g. FAST-NUCES Multan"
+                    className="form-input"
+                  />
                 </div>
 
                 <div>
@@ -325,29 +325,7 @@ export default async function PublicAmbassadorApplicationPage({
               </div>
             </div>
 
-            {/* Student Verification */}
-            <div className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col gap-3">
-              <h2
-                style={{ fontFamily: 'var(--font-heading)', fontSize: 'var(--fs-title2)' }}
-                className="font-bold text-[var(--color-text)] uppercase"
-              >
-                Student Verification
-              </h2>
-              <label htmlFor="studentCard" className="form-label">
-                Clear picture of Student Card *
-              </label>
-              <p className="text-xs text-[var(--color-text-muted)]">
-                Make sure the picture is clear and all important information is readable.
-              </p>
-              <input
-                id="studentCard"
-                name="studentCard"
-                type="file"
-                accept="image/jpeg,image/jpg,image/png,image/webp"
-                required
-                className="mt-2 block w-full text-sm text-[var(--color-text)] file:mr-4 file:rounded-full file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:text-white hover:file:bg-[var(--color-primary-hover)] cursor-pointer"
-              />
-            </div>
+
 
             {/* Optional Message */}
             <div className="p-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] flex flex-col gap-3">

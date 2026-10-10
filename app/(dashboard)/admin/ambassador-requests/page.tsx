@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 export const dynamic = 'force-dynamic';
 
 export default async function AmbassadorRequestsPage() {
-  const [requests, universities] = await Promise.all([
+  const [requests, universities, existingAmbassadors] = await Promise.all([
     prisma.ambassadorRequest.findMany({
       where: {
         status: 'PENDING',
@@ -32,7 +32,15 @@ export default async function AmbassadorRequestsPage() {
         name: 'asc',
       },
     }),
+
+    prisma.ambassador.findMany({
+      select: {
+        universityId: true,
+      },
+    }),
   ]);
+
+  const assignedUniIds = new Set(existingAmbassadors.map((a) => a.universityId));
 
   return (
     <div className="flex flex-col gap-6">
@@ -179,12 +187,16 @@ export default async function AmbassadorRequestsPage() {
                       className="form-input"
                     >
                       <option value="">Select University</option>
-                      {universities.map((university) => (
-                        <option key={university.id} value={university.id}>
-                          {university.name}
-                          {university.city ? ` (${university.city})` : ''}
-                        </option>
-                      ))}
+                      {universities.map((university) => {
+                        const isTaken = assignedUniIds.has(university.id);
+                        return (
+                          <option key={university.id} value={university.id} disabled={isTaken}>
+                            {university.name}
+                            {university.city ? ` (${university.city})` : ''}
+                            {isTaken ? ' (already has an ambassador)' : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 

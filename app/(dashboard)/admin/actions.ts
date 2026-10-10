@@ -175,13 +175,14 @@ export async function createUniversityAction(formData: FormData) {
 export async function deleteUniversityAction(universityId: string) {
   const admin = await requireSuperAdmin();
 
-  const [ambassadorCount, teamCount] = await Promise.all([
+  const [ambassadorCount, teamCount, participantCount] = await Promise.all([
     prisma.ambassador.count({ where: { universityId } }),
     prisma.team.count({ where: { universityId } }),
+    prisma.participant.count({ where: { universityId } }),
   ]);
 
-  if (ambassadorCount > 0 || teamCount > 0) {
-    throw new Error('This university has ambassadors or teams linked to it and cannot be deleted.');
+  if (ambassadorCount > 0 || teamCount > 0 || participantCount > 0) {
+    throw new Error('This university has ambassadors, teams or participants linked to it and cannot be deleted.');
   }
 
   const university = await prisma.university.findUnique({ where: { id: universityId } });
@@ -271,6 +272,13 @@ export async function createAmbassadorAction(formData: FormData) {
     redirect('/admin/ambassadors?error=A user with this email already exists.');
   }
 
+  const existingAmbassadorForUni = await prisma.ambassador.findFirst({
+    where: { universityId },
+  });
+  if (existingAmbassadorForUni) {
+    redirect('/admin/ambassadors?error=' + encodeURIComponent('This university already has a campus ambassador.'));
+  }
+
   const supabaseAdmin = createSupabaseAdminClient();
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
@@ -298,6 +306,10 @@ export async function createAmbassadorAction(formData: FormData) {
     await supabaseAdmin.auth.admin.deleteUser(data.user!.id);
 
     if (err.code === 'P2002') {
+      const target = err.meta?.target;
+      if (Array.isArray(target) && target.includes('universityId')) {
+        redirect('/admin/ambassadors?error=' + encodeURIComponent('This university already has a campus ambassador.'));
+      }
       redirect('/admin/ambassadors?error=This ambassador code is already in use.');
     }
     redirect('/admin/ambassadors?error=Failed to create ambassador record.');
@@ -352,76 +364,127 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
   revalidatePath('/admin/ambassadors');
 }
 
-export async function verifyPaymentAction(paymentId: string) {
-  const admin = await requireSuperAdmin();
-
-  const payment = await prisma.payment.update({
-    where: { id: paymentId },
-    data: { verificationStatus: 'VERIFIED', verifiedBy: admin.id },
-    include: { invoice: true },
-  });
-
-  await prisma.invoice.update({
-    where: { id: payment.invoiceId },
-    data: { status: 'PAID' },
-  });
-
-  await prisma.registration.update({
-    where: { id: payment.invoice.registrationId },
-    data: { status: 'CONFIRMED' },
-  });
-
-  const generatedTicketCode = `TCK-${randomUUID().slice(0, 8).toUpperCase()}`;
-
-  await prisma.ticket.upsert({
-    where: { registrationId: payment.invoice.registrationId },
-    create: {
-      registrationId: payment.invoice.registrationId,
-      ticketCode: generatedTicketCode,
-      qrData: generatedTicketCode,
-      status: 'VALID',
-    },
-    update: {},
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      userId: admin.id,
-      action: 'VERIFY',
-      targetTable: 'Payment',
-      targetId: paymentId,
-      details: { amount: payment.amount.toString(), method: payment.method },
-    },
-  });
-
+function revalidatePaymentPages() {
   revalidatePath('/admin/payments');
   revalidatePath('/participant/payments');
   revalidatePath('/participant/tickets');
+  revalidatePath('/ambassador');
+  revalidatePath('/ambassador/payments');
+  revalidatePath('/ambassador/tickets');
+}
+
+async function verifyPaymentCore(paymentId: string, adminId: string) {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { invoice: true },
+  });
+
+  if (!payment || payment.verificationStatus !== 'SUBMITTED') return;
+
+  const registrationId = payment.invoice.registrationId;
+  const code = `TCK-${randomUUID().slice(0, 8).toUpperCase()}`;
+
+  await prisma.$transaction([
+    prisma.payment.update({
+      where: { id: paymentId },
+      data: { verificationStatus: 'VERIFIED', verifiedBy: adminId },
+    }),
+    prisma.invoice.update({
+      where: { id: payment.invoiceId },
+      data: { status: 'PAID' },
+    }),
+    prisma.registration.update({
+      where: { id: registrationId },
+      data: { status: 'CONFIRMED' },
+    }),
+    prisma.ticket.upsert({
+      where: { registrationId },
+      create: { registrationId, ticketCode: code, qrData: code, status: 'VALID' },
+      update: {},
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'VERIFY',
+        targetTable: 'Payment',
+        targetId: paymentId,
+        details: {
+          amount: payment.amount.toString(),
+          method: payment.method,
+          batchId: payment.batchId,
+        },
+      },
+    }),
+  ]);
+}
+
+async function rejectPaymentCore(paymentId: string, adminId: string) {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { invoice: true },
+  });
+
+  if (!payment || payment.verificationStatus !== 'SUBMITTED') return;
+
+  await prisma.$transaction([
+    prisma.payment.update({
+      where: { id: paymentId },
+      data: { verificationStatus: 'REJECTED', verifiedBy: adminId },
+    }),
+    prisma.registration.update({
+      where: { id: payment.invoice.registrationId },
+      data: { status: 'INVOICED' },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'REJECT',
+        targetTable: 'Payment',
+        targetId: paymentId,
+        details: {
+          amount: payment.amount.toString(),
+          method: payment.method,
+          batchId: payment.batchId,
+        },
+      },
+    }),
+  ]);
+}
+
+export async function verifyPaymentAction(paymentId: string) {
+  const admin = await requireSuperAdmin();
+  await verifyPaymentCore(paymentId, admin.id);
+  revalidatePaymentPages();
 }
 
 export async function rejectPaymentAction(paymentId: string) {
   const admin = await requireSuperAdmin();
+  await rejectPaymentCore(paymentId, admin.id);
+  revalidatePaymentPages();
+}
 
-  const payment = await prisma.payment.update({
-    where: { id: paymentId },
-    data: { verificationStatus: 'REJECTED', verifiedBy: admin.id },
-    include: { invoice: true },
+export async function verifyBatchAction(batchId: string) {
+  const admin = await requireSuperAdmin();
+  const payments = await prisma.payment.findMany({
+    where: { batchId, verificationStatus: 'SUBMITTED' },
+    select: { id: true },
   });
+  for (const p of payments) {
+    await verifyPaymentCore(p.id, admin.id);
+  }
+  revalidatePaymentPages();
+}
 
-  await prisma.registration.update({
-    where: { id: payment.invoice.registrationId },
-    data: { status: 'INVOICED' },
+export async function rejectBatchAction(batchId: string) {
+  const admin = await requireSuperAdmin();
+  const payments = await prisma.payment.findMany({
+    where: { batchId, verificationStatus: 'SUBMITTED' },
+    select: { id: true },
   });
-
-  await prisma.auditLog.create({
-    data: {
-      userId: admin.id,
-      action: 'REJECT',
-      targetTable: 'Payment',
-      targetId: paymentId,
-      details: { amount: payment.amount.toString(), method: payment.method },
-    },
-  });
+  for (const p of payments) {
+    await rejectPaymentCore(p.id, admin.id);
+  }
+  revalidatePaymentPages();
 }
 
 export async function approveAmbassadorRequestAction(
@@ -466,6 +529,13 @@ export async function approveAmbassadorRequestAction(
 
   if (!university) {
     throw new Error('University not found.');
+  }
+
+  const existingAmbassadorForUni = await prisma.ambassador.findFirst({
+    where: { universityId },
+  });
+  if (existingAmbassadorForUni) {
+    throw new Error('This university already has a campus ambassador.');
   }
 
   const existingCode = await prisma.ambassador.findUnique({
@@ -543,6 +613,11 @@ export async function approveAmbassadorRequestAction(
     });
   }
 
+  await prisma.participant.updateMany({
+    where: { userId: targetUserId, universityId: null },
+    data: { universityId },
+  });
+
   await prisma.$transaction([
     prisma.ambassador.create({
       data: {
@@ -611,6 +686,75 @@ export async function rejectAmbassadorRequestAction(
 
   revalidatePath('/admin/ambassador-requests');
 }
+
+export async function verifyCampusPaymentAction(campusPaymentId: string) {
+  const admin = await requireSuperAdmin();
+
+  const campusPayment = await prisma.campusPayment.findUnique({
+    where: { id: campusPaymentId },
+    include: { invoices: true },
+  });
+
+  if (!campusPayment) {
+    throw new Error('Campus payment not found.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.campusPayment.update({
+      where: { id: campusPaymentId },
+      data: {
+        verificationStatus: 'VERIFIED',
+        verifiedBy: admin.id,
+      },
+    });
+
+    await tx.invoice.updateMany({
+      where: { campusPaymentId },
+      data: { status: 'PAID' },
+    });
+
+    const registrationIds = campusPayment.invoices.map((inv) => inv.registrationId);
+    if (registrationIds.length > 0) {
+      await tx.registration.updateMany({
+        where: { id: { in: registrationIds } },
+        data: { status: 'CONFIRMED' },
+      });
+    }
+  });
+
+  revalidatePath('/admin/payments');
+  revalidatePath('/ambassador/payments');
+}
+
+export async function rejectCampusPaymentAction(campusPaymentId: string) {
+  const admin = await requireSuperAdmin();
+
+  const campusPayment = await prisma.campusPayment.findUnique({
+    where: { id: campusPaymentId },
+  });
+
+  if (!campusPayment) {
+    throw new Error('Campus payment not found.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.campusPayment.update({
+      where: { id: campusPaymentId },
+      data: {
+        verificationStatus: 'REJECTED',
+      },
+    });
+
+    await tx.invoice.updateMany({
+      where: { campusPaymentId },
+      data: { campusPaymentId: null },
+    });
+  });
+
+  revalidatePath('/admin/payments');
+  revalidatePath('/ambassador/payments');
+}
+
 
 
 

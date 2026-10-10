@@ -2,6 +2,8 @@ import React from 'react';
 import { prisma } from '@/lib/prisma';
 import { Container } from '@/components/ui/Container';
 import { SectionHeading } from '@/components/ui/SectionHeading';
+import { Button } from '@/components/ui/Button';
+import { AMBASSADOR_APPLY_URL } from '@/lib/constants';
 
 function getInitials(email: string): string {
   if (!email) return 'AM';
@@ -25,6 +27,9 @@ export default async function AmbassadorsPage() {
     },
   });
 
+  const isExternal =
+    AMBASSADOR_APPLY_URL.startsWith('http') || AMBASSADOR_APPLY_URL.startsWith('mailto:');
+
   return (
     <div className="w-full flex flex-col" style={{ backgroundColor: 'var(--color-background)' }}>
       {/* Page Header Band */}
@@ -43,6 +48,16 @@ export default async function AmbassadorsPage() {
             title="Ambassadors & Partner Universities"
             subtitle="Campus ambassadors representing partner universities across Pakistan."
           />
+          <div className="mt-6">
+            <Button
+              href={AMBASSADOR_APPLY_URL}
+              variant="primary"
+              target={isExternal ? '_blank' : undefined}
+              rel={isExternal ? 'noopener noreferrer' : undefined}
+            >
+              Become an Ambassador
+            </Button>
+          </div>
         </Container>
       </section>
 
@@ -145,6 +160,44 @@ export default async function AmbassadorsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* Bottom CTA Section */}
+      <section
+        style={{
+          backgroundColor: 'var(--color-secondary-deep)',
+          paddingTop: '64px',
+          paddingBottom: '64px',
+        }}
+        className="w-full text-center border-t border-white/10"
+      >
+        <Container>
+          <div className="flex flex-col items-center max-w-2xl mx-auto gap-4">
+            <h2
+              style={{
+                fontFamily: 'var(--font-heading)',
+                fontSize: 'var(--fs-title1)',
+                color: 'var(--color-text-on-dark)',
+              }}
+              className="font-bold uppercase tracking-tight"
+            >
+              Represent Your Campus
+            </h2>
+            <p style={{ color: 'var(--color-text-on-dark)', opacity: 0.8 }}>
+              Join our network of campus ambassadors and lead Kishwar 26 at your university.
+            </p>
+            <div className="mt-2">
+              <Button
+                href={AMBASSADOR_APPLY_URL}
+                variant="primary"
+                target={isExternal ? '_blank' : undefined}
+                rel={isExternal ? 'noopener noreferrer' : undefined}
+              >
+                Become an Ambassador
+              </Button>
+            </div>
           </div>
         </Container>
       </section>

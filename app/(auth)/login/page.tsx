@@ -12,6 +12,7 @@ const initialState = { error: undefined as string | undefined };
 function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get('next') ?? '';
+  const reason = searchParams.get('reason');
   const [state, formAction] = useFormState(signInAction, initialState);
 
   const signupHref = next ? `/signup?next=${encodeURIComponent(next)}` : '/signup';
@@ -35,6 +36,22 @@ function LoginForm() {
         </div>
       }
     >
+      {reason === 'inactive' && (
+        <div
+          style={{
+            color: 'var(--color-warning)',
+            borderLeft: '4px solid var(--color-warning)',
+            padding: '12px 16px',
+            backgroundColor: 'rgba(255, 136, 0, 0.1)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--fs-footnote)',
+            marginBottom: '16px',
+          }}
+        >
+          You were logged out due to 15 minutes of inactivity.
+        </div>
+      )}
+
       {state?.error && <div className="form-error">{state.error}</div>}
 
       <form action={formAction} className="flex flex-col gap-4">

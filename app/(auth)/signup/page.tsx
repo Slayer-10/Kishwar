@@ -56,6 +56,19 @@ function SignupForm() {
         </div>
 
         <div>
+          <label className="form-label">University</label>
+          <input
+            name="university"
+            type="text"
+            placeholder="e.g. FAST-NUCES Multan"
+            required
+            minLength={2}
+            maxLength={120}
+            className="form-input"
+          />
+        </div>
+
+        <div>
           <label className="form-label">Password</label>
           <input
             name="password"

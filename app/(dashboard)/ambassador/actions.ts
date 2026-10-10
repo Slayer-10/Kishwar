@@ -5,6 +5,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { randomUUID } from 'crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { ambassadorInvoiceScope, PAYABLE_INVOICE_FILTER } from '@/lib/ambassador-scope';
 
 async function requireAmbassador() {
   const user = await getCurrentUser();
@@ -440,4 +441,141 @@ export async function registerSelfAction(formData: FormData) {
   revalidatePath(`/events/${eventId}`);
 
   redirect('/ambassador');
+}
+
+export async function submitBatchPaymentAction(formData: FormData) {
+  const user = await requireAmbassador();
+
+  const fail = (message: string): never =>
+    redirect(`/ambassador/payments?error=${encodeURIComponent(message)}`);
+
+  const ambassador = await prisma.ambassador.findUnique({
+    where: { id: user.ambassador!.id },
+  });
+  if (!ambassador) fail('Ambassador record not found.');
+
+  const invoiceIds = Array.from(
+    new Set(
+      formData
+        .getAll('invoiceIds')
+        .map((v) => String(v).trim())
+        .filter(Boolean)
+    )
+  );
+  const method = String(formData.get('method') ?? '').trim();
+  const referenceNumber = String(formData.get('referenceNumber') ?? '').trim();
+  const proofUrl = String(formData.get('proofUrl') ?? '').trim() || null;
+  const expectedTotal = String(formData.get('expectedTotal') ?? '').trim();
+
+  if (invoiceIds.length === 0) fail('There are no invoices to pay.');
+  if (!method) fail('Payment method is required.');
+  if (!referenceNumber) fail('Reference number is required.');
+
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      AND: [
+        { id: { in: invoiceIds } },
+        ambassadorInvoiceScope(ambassador!, user.participant?.id),
+        PAYABLE_INVOICE_FILTER,
+      ],
+    },
+  });
+
+  if (invoices.length !== invoiceIds.length) {
+    fail('The invoice list changed. Please review the updated list and try again.');
+  }
+
+  const total = invoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
+  if (total.toFixed(2) !== Number(expectedTotal).toFixed(2)) {
+    fail('The total changed. Please review the updated total and try again.');
+  }
+
+  const batchId = randomUUID();
+
+  await prisma.payment.createMany({
+    data: invoices.map((inv) => ({
+      invoiceId: inv.id,
+      amount: inv.amount,
+      method,
+      referenceNumber,
+      proofUrl,
+      batchId,
+    })),
+  });
+
+  revalidatePath('/ambassador');
+  revalidatePath('/ambassador/payments');
+  revalidatePath('/admin/payments');
+
+  redirect('/ambassador/payments');
+}
+
+export async function submitCampusPaymentAction(formData: FormData) {
+  const user = await requireAmbassador();
+
+  const fail = (message: string): never =>
+    redirect(`/ambassador/payments?error=${encodeURIComponent(message)}`);
+
+  const ambassador = await prisma.ambassador.findUnique({
+    where: { id: user.ambassador!.id },
+  });
+  if (!ambassador) fail('Ambassador record not found.');
+
+  const method = String(formData.get('method') ?? '').trim();
+  const referenceNumber = String(formData.get('referenceNumber') ?? '').trim();
+  const proofUrl = String(formData.get('proofUrl') ?? '').trim() || null;
+
+  if (!method) fail('Payment method is required.');
+
+  // Find all unpaid invoices for this ambassador's campus scope that are PENDING and not linked to a CampusPayment
+  const campusScopeWhere = {
+    OR: [
+      { ambassadorId: ambassador!.id },
+      { team: { ambassadorId: ambassador!.id } },
+      { participant: { universityId: ambassador!.universityId } },
+      { team: { universityId: ambassador!.universityId } },
+    ],
+  };
+
+  const unpaidInvoices = await prisma.invoice.findMany({
+    where: {
+      status: 'PENDING',
+      campusPaymentId: null,
+      registration: campusScopeWhere,
+    },
+  });
+
+  if (unpaidInvoices.length === 0) {
+    fail('No unpaid invoices found for your campus.');
+  }
+
+  // Calculate total on SERVER from DB
+  const totalAmount = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
+
+  await prisma.$transaction(async (tx) => {
+    const campusPayment = await tx.campusPayment.create({
+      data: {
+        ambassadorId: ambassador!.id,
+        totalAmount,
+        method,
+        referenceNumber: referenceNumber || null,
+        proofUrl,
+        verificationStatus: 'SUBMITTED',
+      },
+    });
+
+    await tx.invoice.updateMany({
+      where: {
+        id: { in: unpaidInvoices.map((inv) => inv.id) },
+      },
+      data: {
+        campusPaymentId: campusPayment.id,
+      },
+    });
+  });
+
+  revalidatePath('/ambassador/payments');
+  revalidatePath('/admin/payments');
+
+  redirect('/ambassador/payments');
 }

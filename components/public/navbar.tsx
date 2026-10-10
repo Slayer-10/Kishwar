@@ -26,6 +26,9 @@ export function Navbar({ isLoggedIn, dashboardHref }: NavbarProps) {
   const router = useRouter();
 
   async function handleLogout() {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('kishwar:lastActivity');
+    }
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
     setOpen(false);

@@ -3,6 +3,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { redirect } from 'next/navigation';
+import { assertValidUniversityName, findOrCreateUniversity } from '@/lib/university';
 
 const ROLE_HOME: Record<string, string> = {
   SUPER_ADMIN: '/admin',
@@ -52,6 +53,12 @@ export async function signUpAction(
   const email = String(formData.get('email'));
   const password = String(formData.get('password'));
   const fullName = String(formData.get('fullName'));
+  let universityName: string;
+  try {
+    universityName = assertValidUniversityName(formData.get('university'));
+  } catch (e: any) {
+    return { error: e.message };
+  }
   const next = formData.get('next') ? String(formData.get('next')) : null;
 
   const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -66,12 +73,14 @@ export async function signUpAction(
     return { error: error?.message ?? 'Sign up failed' };
   }
 
+  const university = await findOrCreateUniversity(universityName);
+
   await prisma.$transaction([
     prisma.user.create({
       data: { id: data.user.id, email, role: 'PARTICIPANT' },
     }),
     prisma.participant.create({
-      data: { userId: data.user.id, fullName, email },
+      data: { userId: data.user.id, fullName, email, universityId: university.id },
     }),
   ]);
 

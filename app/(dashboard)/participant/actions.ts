@@ -2,9 +2,9 @@
 
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
-import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { findOrCreateUniversity } from '@/lib/university';
 
 async function requireParticipant() {
   const user = await getCurrentUser();
@@ -28,12 +28,8 @@ export async function requestAmbassadorAction(formData: FormData) {
   }
 
   const existing = await prisma.ambassadorRequest.findFirst({
-    where: {
-      participantId: user.participant.id,
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
+    where: { participantId: user.participant.id },
+    orderBy: { createdAt: 'desc' },
   });
 
   if (existing?.status === 'PENDING' || existing?.status === 'APPROVED') {
@@ -44,23 +40,13 @@ export async function requestAmbassadorAction(formData: FormData) {
   const phone = String(formData.get('phone') ?? '').trim();
   const cnic = String(formData.get('cnic') ?? '').trim();
   const gender = String(formData.get('gender') ?? '').trim();
-  const universityId = String(formData.get('universityId') ?? '').trim();
+  const universityNameRaw = String(formData.get('universityName') ?? '').trim();
   const occupation = String(formData.get('occupation') ?? '').trim();
   const degree = String(formData.get('degree') ?? '').trim();
   const semesterRaw = String(formData.get('semester') ?? '').trim();
   const message = String(formData.get('message') ?? '').trim() || null;
-  const studentCardFile = formData.get('studentCard') as File | null;
 
-  if (
-    !fullName ||
-    !phone ||
-    !cnic ||
-    !gender ||
-    !universityId ||
-    !occupation ||
-    !degree ||
-    !semesterRaw
-  ) {
+  if (!fullName || !phone || !cnic || !gender || !occupation || !degree || !semesterRaw) {
     throw new Error('All required personal and academic fields must be filled.');
   }
 
@@ -69,64 +55,25 @@ export async function requestAmbassadorAction(formData: FormData) {
     throw new Error('Semester must be a valid positive number.');
   }
 
-  if (!studentCardFile || studentCardFile.size === 0) {
-    throw new Error('Clear picture of Student Card is required.');
-  }
-
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-  if (!allowedTypes.includes(studentCardFile.type)) {
-    throw new Error('Student Card must be a JPG, JPEG, PNG, or WEBP image.');
-  }
-
-  const university = await prisma.university.findUnique({
-    where: { id: universityId },
-  });
-  if (!university) {
-    throw new Error('Selected university not found.');
-  }
-
-  // Upload student card to Supabase Storage
-  const supabase = createSupabaseAdminClient();
-  const bucketName = 'student-cards';
-
-  const { data: buckets } = await supabase.storage.listBuckets();
-  if (!buckets?.some((b) => b.name === bucketName)) {
-    await supabase.storage.createBucket(bucketName, { public: true });
-  }
-
-  const bytes = await studentCardFile.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-  const fileExt = studentCardFile.name.split('.').pop() || 'png';
-  const filePath = `ambassador-applications/${user.participant.id}/${Date.now()}.${fileExt}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(bucketName)
-    .upload(filePath, buffer, {
-      contentType: studentCardFile.type,
-      upsert: true,
+  let universityId: string;
+  if (universityNameRaw) {
+    universityId = (await findOrCreateUniversity(universityNameRaw)).id;
+  } else {
+    const me = await prisma.participant.findUnique({
+      where: { id: user.participant.id },
+      select: { universityId: true },
     });
-
-  if (uploadError) {
-    throw new Error(`Failed to upload student card: ${uploadError.message}`);
+    if (!me?.universityId) {
+      throw new Error('University is required.');
+    }
+    universityId = me.universityId;
   }
 
-  const { data: publicUrlData } = supabase.storage
-    .from(bucketName)
-    .getPublicUrl(filePath);
-
-  const studentCardUrl = publicUrlData.publicUrl;
-
-  // Update participant details
   await prisma.participant.update({
     where: { id: user.participant.id },
-    data: {
-      fullName,
-      phone,
-      cnic,
-    },
+    data: { fullName, phone, cnic, universityId },
   });
 
-  // Create Ambassador Request
   await prisma.ambassadorRequest.create({
     data: {
       participantId: user.participant.id,
@@ -135,14 +82,12 @@ export async function requestAmbassadorAction(formData: FormData) {
       gender,
       degree,
       semester,
-      studentCardUrl,
       message,
     },
   });
 
   revalidatePath('/participant');
   revalidatePath('/participant/ambassador-application');
-
   redirect('/participant/ambassador-application');
 }
 
@@ -192,6 +137,28 @@ export async function submitPaymentAction(formData: FormData) {
 
   if (invoice.status === 'PAID') {
     redirect(`${returnPath}?error=This invoice has already been paid.`);
+  }
+
+  if (user.role === 'PARTICIPANT') {
+    const me = await prisma.participant.findUnique({
+      where: { id: user.participant!.id },
+      select: { universityId: true },
+    });
+    if (me?.universityId) {
+      const campusAmbassadors = await prisma.ambassador.count({
+        where: { universityId: me.universityId },
+      });
+      if (campusAmbassadors > 0) {
+        redirect(`${returnPath}?error=Your campus Ambassador pays for your university in one combined payment.`);
+      }
+    }
+  }
+
+  const alreadySubmitted = await prisma.payment.count({
+    where: { invoiceId: invoice.id, verificationStatus: 'SUBMITTED' },
+  });
+  if (alreadySubmitted > 0) {
+    redirect(`${returnPath}?error=A payment for this invoice is already awaiting verification.`);
   }
 
   await prisma.payment.create({

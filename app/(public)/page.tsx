@@ -175,13 +175,6 @@ export default async function HomePage() {
                   multiple days of events. Sports, technology, arts, and culture — all under one roof
                   at FAST-NUCES Multan Campus.
                 </p>
-                {ambassadorHref && (
-                  <div className="mt-6">
-                    <Button href={ambassadorHref} variant="secondary">
-                      {ambassadorLabel}
-                    </Button>
-                  </div>
-                )}
               </div>
 
               {/* Right Col Framed Image */}

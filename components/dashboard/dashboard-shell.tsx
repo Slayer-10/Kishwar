@@ -27,6 +27,9 @@ export function DashboardShell({
   const router = useRouter();
 
   async function handleLogout() {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('kishwar:lastActivity');
+    }
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
     router.push('/login');

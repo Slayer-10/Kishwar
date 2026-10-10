@@ -21,6 +21,14 @@ export default async function ParticipantPaymentsPage({
     orderBy: { createdAt: 'desc' },
   });
 
+  const me = await prisma.participant.findUnique({
+    where: { id: user!.participant!.id },
+    include: {
+      university: { include: { ambassadors: { include: { user: true } } } },
+    },
+  });
+  const campusAmbassador = me?.university?.ambassadors[0] ?? null;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col">
@@ -89,7 +97,14 @@ export default async function ParticipantPaymentsPage({
               </div>
             )}
 
-            {invoice.status !== 'PAID' && (
+            {invoice.status !== 'PAID' && campusAmbassador && (
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--color-background)] text-sm text-[var(--color-text-muted)] border-t border-[var(--color-divider)]">
+                Payment for your university is made in one combined payment by your campus Ambassador
+                ({campusAmbassador.user.email}). Please hand your fee to them.
+              </div>
+            )}
+
+            {invoice.status !== 'PAID' && !campusAmbassador && (
               <form action={submitPaymentAction} className="flex flex-col gap-4 border-t border-[var(--color-divider)] pt-4">
                 <input type="hidden" name="invoiceId" value={invoice.id} />
                 
