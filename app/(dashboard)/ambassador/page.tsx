@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { AmbassadorManualRegistrationSection } from '@/components/dashboard/AmbassadorManualRegistrationSection';
 
 export default async function AmbassadorHomePage() {
   const user = await getCurrentUser();
@@ -12,7 +13,7 @@ export default async function AmbassadorHomePage() {
     include: { university: true },
   });
 
-  const [teams, individualRegistrations, myParticipation] = await Promise.all([
+  const [teams, individualRegistrations, myParticipation, openEvents] = await Promise.all([
     prisma.team.findMany({
       where: {
         ambassadorId: user!.ambassador!.id,
@@ -97,6 +98,23 @@ export default async function AmbassadorHomePage() {
         createdAt: 'desc',
       },
     }),
+
+    prisma.event.findMany({
+      where: {
+        status: 'OPEN',
+        deadline: { gte: new Date() },
+      },
+      select: {
+        id: true,
+        name: true,
+        registrationType: true,
+        minTeamSize: true,
+        maxTeamSize: true,
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    }),
   ]);
 
   return (
@@ -161,6 +179,9 @@ export default async function AmbassadorHomePage() {
           </span>
         </div>
       </div>
+
+      {/* Manual Participant & Team Registration Section */}
+      <AmbassadorManualRegistrationSection events={openEvents} />
 
       {/* My Personal Participation */}
       <section className="p-6 rounded-[var(--radius-lg)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] border-t-4 border-t-[var(--color-accent)] flex flex-col gap-4">

@@ -5,7 +5,140 @@ import { getCurrentUser } from '@/lib/auth';
 import { randomUUID } from 'crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { ambassadorInvoiceScope, PAYABLE_INVOICE_FILTER } from '@/lib/ambassador-scope';
+
+const EVIDENCE_BUCKET = 'kishwar-registration-evidence';
+const MAX_FILE_SIZE = 8 * 1024 * 1024;
+
+const ALLOWED_TYPES: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+export type AmbassadorRegistrationState = {
+  error?: string;
+  success?: string;
+};
+
+function textValue(formData: FormData, key: string): string {
+  return String(formData.get(key) ?? '').trim();
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeCnic(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+function validateCnic(value: string): string {
+  const normalized = normalizeCnic(value);
+  if (!/^\d{13}$/.test(normalized)) {
+    throw new Error('Enter a valid 13-digit CNIC or B-Form number.');
+  }
+  return normalized;
+}
+
+function getUploadedFile(formData: FormData, key: string): File | null {
+  const value = formData.get(key);
+  if (!(value instanceof File) || value.size === 0) {
+    return null;
+  }
+  return value;
+}
+
+function validateFile(file: File | null, label: string): File {
+  if (!file || !(file instanceof File) || file.size === 0) {
+    throw new Error(`${label} (Student ID photo/document) is required.`);
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(ALLOWED_TYPES, file.type)) {
+    throw new Error(`${label} must be a PDF, JPG, PNG, or WEBP file.`);
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(`${label} must be 8 MB or smaller.`);
+  }
+
+  return file;
+}
+
+async function ensurePrivateEvidenceBucket() {
+  const supabase = createSupabaseAdminClient();
+
+  let { data: bucket, error } = await supabase.storage.getBucket(EVIDENCE_BUCKET);
+
+  if (error || !bucket) {
+    const created = await supabase.storage.createBucket(EVIDENCE_BUCKET, {
+      public: false,
+      fileSizeLimit: MAX_FILE_SIZE,
+      allowedMimeTypes: Object.keys(ALLOWED_TYPES),
+    });
+
+    if (created.error) {
+      const retry = await supabase.storage.getBucket(EVIDENCE_BUCKET);
+
+      if (retry.error || !retry.data) {
+        throw new Error('Private evidence storage is unavailable.');
+      }
+
+      bucket = retry.data;
+    } else {
+      const createdRead = await supabase.storage.getBucket(EVIDENCE_BUCKET);
+      bucket = createdRead.data;
+    }
+  }
+
+  if (!bucket || bucket.public) {
+    throw new Error('Evidence storage must be private.');
+  }
+
+  return supabase;
+}
+
+async function uploadEvidence(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  eventId: string,
+  file: File,
+  uploadedPaths: string[]
+): Promise<string> {
+  const extension = ALLOWED_TYPES[file.type];
+
+  if (!extension) {
+    throw new Error('Unsupported evidence file type.');
+  }
+
+  const path = `ambassador-registration/${eventId}/${randomUUID()}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from(EVIDENCE_BUCKET)
+    .upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+
+  if (error) {
+    throw new Error('Unable to securely upload student ID evidence.');
+  }
+
+  uploadedPaths.push(path);
+  return path;
+}
+
+async function removeUploadedEvidence(paths: string[]) {
+  if (paths.length === 0) return;
+
+  try {
+    const supabase = createSupabaseAdminClient();
+    await supabase.storage.from(EVIDENCE_BUCKET).remove(paths);
+  } catch {
+    // Internal cleanup error ignored for client feedback
+  }
+}
 
 async function requireAmbassador() {
   const user = await getCurrentUser();
@@ -13,6 +146,8 @@ async function requireAmbassador() {
   if (!user || user.role !== 'AMBASSADOR' || !user.ambassador) {
     redirect('/login');
   }
+
+  const ambassador = user.ambassador;
 
   if (!user.participant) {
     const participant = await prisma.participant.create({
@@ -22,409 +157,621 @@ async function requireAmbassador() {
         email: user.email,
       },
     });
-    return { ...user, participant };
+    return { ...user, participant, ambassador };
   }
 
-  return user as typeof user & { participant: NonNullable<typeof user.participant> };
+  return {
+    ...user,
+    participant: user.participant,
+    ambassador,
+  };
 }
 
-export async function registerParticipantAction(formData: FormData) {
-  const user = await requireAmbassador();
+export async function registerParticipantAction(
+  _prevState: any,
+  formData: FormData
+): Promise<AmbassadorRegistrationState> {
+  const uploadedPaths: string[] = [];
 
-  const eventId = String(formData.get('eventId') ?? '').trim();
-  const participantEmail = String(
-    formData.get('participantEmail') ?? ''
-  ).trim().toLowerCase();
-  const participantCnic = String(
-    formData.get('participantCnic') ?? ''
-  ).trim();
+  try {
+    const user = await requireAmbassador();
+    const ambassador = user.ambassador;
 
-  if (!eventId || !participantEmail) {
-    throw new Error('Event and participant email are required.');
-  }
+    const eventId = textValue(formData, 'eventId');
+    const fullName = textValue(formData, 'fullName');
+    const participantEmail = normalizeEmail(textValue(formData, 'participantEmail'));
+    const participantPhone = textValue(formData, 'participantPhone');
+    const participantCnic = textValue(formData, 'participantCnic');
+    const accommodationSelection = textValue(formData, 'accommodationSelection') || 'NONE_OR_ALREADY_ARRANGED';
+    const accommodationGender = textValue(formData, 'accommodationGender') || null;
 
-  const cleanInputCnic = participantCnic.replaceAll('-', '').trim();
-  if (!cleanInputCnic) {
-    throw new Error('Participant CNIC is required.');
-  }
-
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-  });
-
-  if (!event) {
-    throw new Error('Event not found.');
-  }
-
-  if (event.status !== 'OPEN') {
-    throw new Error('This event is not open for registration.');
-  }
-
-  if (event.deadline < new Date()) {
-    throw new Error('The registration deadline has passed.');
-  }
-
-  if (event.registrationType === 'TEAM') {
-    throw new Error('This event only accepts team registration.');
-  }
-
-  const participant = await prisma.participant.findUnique({
-    where: { email: participantEmail },
-  });
-
-  if (!participant) {
-    throw new Error(
-      'No KISHWAR participant account exists with this email. The participant must create an account first.'
-    );
-  }
-
-  const cleanStoredCnic = participant.cnic
-    ? participant.cnic.replaceAll('-', '').trim()
-    : '';
-
-  if (cleanStoredCnic && cleanStoredCnic.toLowerCase() !== cleanInputCnic.toLowerCase()) {
-    throw new Error("The entered CNIC does not match this participant's account.");
-  }
-
-  if (!cleanStoredCnic) {
-    await prisma.participant.update({
-      where: { id: participant.id },
-      data: { cnic: participantCnic.trim() },
-    });
-  }
-
-  const existing = await prisma.registration.findFirst({
-    where: {
-      eventId,
-      participantId: participant.id,
-    },
-  });
-
-  if (existing) {
-    throw new Error('This participant is already registered for this event.');
-  }
-
-  const registration = await prisma.registration.create({
-    data: {
-      eventId,
-      participantId: participant.id,
-      ambassadorId: user.ambassador!.id,
-      source: 'AMBASSADOR',
-      reviewStatus: 'APPROVED',
-      seatReserved: true,
-      ambassadorApprovedAt: new Date(),
-    },
-  });
-
-  revalidatePath('/ambassador');
-  revalidatePath('/ambassador/participants');
-}
-
-export async function registerTeamAction(formData: FormData) {
-  const user = await requireAmbassador();
-
-  const eventId = String(formData.get('eventId') ?? '').trim();
-  const teamName = String(formData.get('teamName') ?? '').trim();
-
-  const captainEmail = String(
-    formData.get('captainEmail') ?? ''
-  ).trim().toLowerCase();
-  const captainCnic = String(
-    formData.get('captainCnic') ?? ''
-  ).trim();
-
-  const memberEmails = formData
-    .getAll('memberEmails')
-    .map((value) => String(value).trim().toLowerCase())
-    .filter(Boolean);
-
-  const memberCnics = formData
-    .getAll('memberCnics')
-    .map((value) => String(value).trim());
-
-  if (!eventId || !teamName || !captainEmail) {
-    throw new Error(
-      'Event, team name, and captain email are required.'
-    );
-  }
-
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-  });
-
-  if (!event) {
-    throw new Error('Event not found.');
-  }
-
-  if (event.status !== 'OPEN') {
-    throw new Error('This event is not open for registration.');
-  }
-
-  if (event.deadline < new Date()) {
-    throw new Error('The registration deadline has passed.');
-  }
-
-  if (event.registrationType === 'INDIVIDUAL') {
-    throw new Error('This event only accepts individual registration.');
-  }
-
-  const ambassador = await prisma.ambassador.findUnique({
-    where: { id: user.ambassador!.id },
-  });
-
-  if (!ambassador) {
-    throw new Error('Ambassador record not found.');
-  }
-
-  const captain = await prisma.participant.findUnique({
-    where: { email: captainEmail },
-  });
-
-  if (!captain) {
-    throw new Error(
-      'The captain must already have a KISHWAR participant account.'
-    );
-  }
-
-  const uniqueEmails = [
-    captainEmail,
-    ...memberEmails.filter((email) => email !== captainEmail),
-  ];
-
-  const participants = await prisma.participant.findMany({
-    where: {
-      email: {
-        in: uniqueEmails,
-      },
-    },
-  });
-
-  if (participants.length !== uniqueEmails.length) {
-    throw new Error(
-      'One or more participants do not have KISHWAR accounts. Every team member must already have an account.'
-    );
-  }
-
-  // Create a mapping of email to submitted CNIC
-  const cnicMap = new Map<string, string>();
-  cnicMap.set(captainEmail, captainCnic);
-  for (let i = 0; i < memberEmails.length; i++) {
-    if (memberEmails[i] && memberCnics[i]) {
-      cnicMap.set(memberEmails[i], memberCnics[i]);
+    if (!eventId || !participantEmail || !participantCnic) {
+      throw new Error('Event, participant email, and CNIC are required.');
     }
-  }
 
-  // Process CNIC validation & first-time persistence for every team member
-  for (const p of participants) {
-    const submittedCnic = cnicMap.get(p.email.toLowerCase()) ?? '';
-    const cleanInput = submittedCnic.replaceAll('-', '').trim();
-    const cleanStored = p.cnic ? p.cnic.replaceAll('-', '').trim() : '';
+    const normalizedCnic = validateCnic(participantCnic);
 
-    if (cleanStored) {
-      if (cleanInput && cleanStored.toLowerCase() !== cleanInput.toLowerCase()) {
-        throw new Error(
-          `The entered CNIC for ${p.fullName} (${p.email}) does not match their account.`
-        );
+    const studentDocumentFile = validateFile(
+      getUploadedFile(formData, 'studentDocument'),
+      'Participant Student ID'
+    );
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+    });
+
+    if (!event) {
+      throw new Error('Event not found.');
+    }
+
+    if (event.status !== 'OPEN') {
+      throw new Error('This event is not open for registration.');
+    }
+
+    if (event.deadline < new Date()) {
+      throw new Error('The registration deadline has passed.');
+    }
+
+    if (event.registrationType === 'TEAM') {
+      throw new Error('This event only accepts team registration.');
+    }
+
+    // Find or create participant
+    let participant = await prisma.participant.findUnique({
+      where: { email: participantEmail },
+    });
+
+    if (participant) {
+      const storedCnic = participant.normalizedCnic || (participant.cnic ? normalizeCnic(participant.cnic) : '');
+      if (storedCnic && storedCnic !== normalizedCnic) {
+        throw new Error("The entered CNIC does not match this participant's existing account.");
       }
+
+      participant = await prisma.participant.update({
+        where: { id: participant.id },
+        data: {
+          fullName: fullName || participant.fullName,
+          phone: participantPhone || participant.phone,
+          cnic: participantCnic,
+          normalizedCnic,
+          universityId: ambassador.universityId,
+        },
+      });
     } else {
-      if (!cleanInput) {
-        throw new Error(
-          `Participant CNIC is required. Team member ${p.fullName} (${p.email}) is missing CNIC.`
-        );
-      }
-      // Save first-time CNIC
-      await prisma.participant.update({
-        where: { id: p.id },
-        data: { cnic: submittedCnic.trim() },
+      participant = await prisma.participant.create({
+        data: {
+          fullName: fullName || participantEmail.split('@')[0],
+          email: participantEmail,
+          phone: participantPhone || null,
+          cnic: participantCnic,
+          normalizedCnic,
+          universityId: ambassador.universityId,
+        },
       });
     }
-  }
 
-  const participantMap = new Map(
-    participants.map((participant) => [
-      participant.email.toLowerCase(),
-      participant,
-    ])
-  );
-
-  const captainRecord = participantMap.get(captainEmail);
-
-  if (!captainRecord) {
-    throw new Error('Captain account not found.');
-  }
-
-  const allParticipantIds = uniqueEmails.map(
-    (email) => participantMap.get(email)!.id
-  );
-
-  if (
-    event.minTeamSize &&
-    allParticipantIds.length < event.minTeamSize
-  ) {
-    throw new Error(
-      `This event requires at least ${event.minTeamSize} team members.`
+    // Upload Student ID evidence
+    const supabase = await ensurePrivateEvidenceBucket();
+    const studentDocPath = await uploadEvidence(
+      supabase,
+      eventId,
+      studentDocumentFile,
+      uploadedPaths
     );
-  }
 
-  if (
-    event.maxTeamSize &&
-    allParticipantIds.length > event.maxTeamSize
-  ) {
-    throw new Error(
-      `This event allows at most ${event.maxTeamSize} team members.`
-    );
-  }
+    // Transaction with advisory lock
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
+      `;
 
-  const conflictingRegistration =
-    await prisma.registration.findFirst({
-      where: {
-        eventId,
-        OR: [
-          {
-            participantId: {
-              in: allParticipantIds,
-            },
+      const currentEvent = await tx.event.findUnique({
+        where: { id: eventId },
+        select: { id: true, status: true, deadline: true, seatCapacity: true },
+      });
+
+      if (!currentEvent || currentEvent.status !== 'OPEN' || currentEvent.deadline < new Date()) {
+        throw new Error('Registration is no longer available for this event.');
+      }
+
+      if (currentEvent.seatCapacity !== null) {
+        const reservedSeats = await tx.registration.count({
+          where: {
+            eventId,
+            seatReserved: true,
+            reviewStatus: 'APPROVED',
           },
-          {
-            team: {
-              captainId: {
-                in: allParticipantIds,
-              },
-            },
-          },
-          {
-            team: {
-              members: {
-                some: {
-                  participantId: {
-                    in: allParticipantIds,
-                  },
-                },
-              },
-            },
-          },
-        ],
-      },
+        });
+
+        if (reservedSeats >= currentEvent.seatCapacity) {
+          throw new Error('All seats for this event have already been reserved.');
+        }
+      }
+
+      const existingRegistration = await tx.registration.findFirst({
+        where: {
+          eventId,
+          reviewStatus: { not: 'REJECTED' },
+          OR: [
+            { participantId: participant.id },
+            { participant: { is: { normalizedCnic } } },
+          ],
+        },
+      });
+
+      if (existingRegistration) {
+        throw new Error('This participant is already registered for this event.');
+      }
+
+      const registration = await tx.registration.create({
+        data: {
+          eventId,
+          participantId: participant.id,
+          ambassadorId: ambassador.id,
+          source: 'AMBASSADOR',
+          reviewStatus: 'APPROVED',
+          seatReserved: true,
+          status: 'PENDING',
+          accommodationSelection: accommodationSelection as any,
+          accommodationGender,
+          ambassadorApprovedAt: new Date(),
+        },
+      });
+
+      await tx.registrationEvidence.create({
+        data: {
+          registrationId: registration.id,
+          participantId: participant.id,
+          type: 'STUDENT_DOCUMENT',
+          reviewStatus: 'VERIFIED',
+          storagePath: studentDocPath,
+          originalFileName: studentDocumentFile.name.slice(0, 180),
+          contentType: studentDocumentFile.type,
+          byteSize: BigInt(studentDocumentFile.size),
+          uploadedByUserId: user.id,
+        },
+      });
     });
 
-  if (conflictingRegistration) {
-    throw new Error(
-      'One or more team members are already registered for this event.'
-    );
+    revalidatePath('/ambassador');
+    revalidatePath('/ambassador/participants');
+
+    return {
+      success: `Participant ${participant.fullName} registered successfully and seat reserved.`,
+    };
+  } catch (err: any) {
+    await removeUploadedEvidence(uploadedPaths);
+    return { error: err?.message || 'Failed to register participant.' };
   }
-
-  const team = await prisma.team.create({
-    data: {
-      name: teamName,
-      captainId: captainRecord.id,
-      eventId,
-      universityId: ambassador.universityId,
-      ambassadorId: ambassador.id,
-      members: {
-        create: allParticipantIds.map((participantId) => ({
-          participantId,
-        })),
-      },
-    },
-  });
-
-  const registration = await prisma.registration.create({
-    data: {
-      eventId,
-      teamId: team.id,
-      ambassadorId: ambassador.id,
-      source: 'AMBASSADOR',
-      reviewStatus: 'APPROVED',
-      seatReserved: true,
-      ambassadorApprovedAt: new Date(),
-    },
-  });
-
-  revalidatePath('/ambassador');
-  revalidatePath('/ambassador/participants');
-
-  redirect('/ambassador');
 }
 
-export async function registerSelfAction(formData: FormData) {
-  const user = await requireAmbassador();
+export async function registerTeamAction(
+  _prevState: any,
+  formData: FormData
+): Promise<AmbassadorRegistrationState> {
+  const uploadedPaths: string[] = [];
 
-  const eventId = String(formData.get('eventId') ?? '').trim();
-  const participantCnic = String(formData.get('participantCnic') ?? '').trim();
+  try {
+    const user = await requireAmbassador();
+    const ambassador = user.ambassador;
 
-  if (!eventId) {
-    throw new Error('Event ID is required.');
+    const eventId = textValue(formData, 'eventId');
+    const teamName = textValue(formData, 'teamName');
+
+    const captainName = textValue(formData, 'captainName');
+    const captainEmail = normalizeEmail(textValue(formData, 'captainEmail'));
+    const captainPhone = textValue(formData, 'captainPhone');
+    const captainCnic = textValue(formData, 'captainCnic');
+
+    const accommodationSelection = textValue(formData, 'accommodationSelection') || 'NONE_OR_ALREADY_ARRANGED';
+    const accommodationGender = textValue(formData, 'accommodationGender') || null;
+
+    const memberNames = formData.getAll('memberNames').map((v) => String(v).trim());
+    const memberEmails = formData.getAll('memberEmails').map((v) => normalizeEmail(String(v)));
+    const memberPhones = formData.getAll('memberPhones').map((v) => String(v).trim());
+    const memberCnics = formData.getAll('memberCnics').map((v) => String(v).trim());
+
+    if (!eventId || !teamName || !captainEmail || !captainCnic) {
+      throw new Error('Event, team name, captain email, and captain CNIC are required.');
+    }
+
+    const captainNormalizedCnic = validateCnic(captainCnic);
+
+    const captainStudentDocFile = validateFile(
+      getUploadedFile(formData, 'captainStudentDocument'),
+      'Captain Student ID'
+    );
+
+    // Validate members & their student IDs
+    const memberFiles: File[] = [];
+    const memberNormalizedCnics: string[] = [];
+
+    for (let i = 0; i < memberEmails.length; i++) {
+      if (!memberEmails[i] || !memberCnics[i]) {
+        throw new Error(`Member ${i + 1} email and CNIC are required.`);
+      }
+      const normCnic = validateCnic(memberCnics[i]);
+      memberNormalizedCnics.push(normCnic);
+
+      const file = validateFile(
+        getUploadedFile(formData, `memberStudentDocument_${i}`),
+        `Member ${i + 1} Student ID`
+      );
+      memberFiles.push(file);
+    }
+
+    const allEmails = [captainEmail, ...memberEmails];
+    const allCnics = [captainNormalizedCnic, ...memberNormalizedCnics];
+
+    if (new Set(allEmails).size !== allEmails.length) {
+      throw new Error('Duplicate emails found within the team.');
+    }
+
+    if (new Set(allCnics).size !== allCnics.length) {
+      throw new Error('Duplicate CNICs found within the team.');
+    }
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+    });
+
+    if (!event) {
+      throw new Error('Event not found.');
+    }
+
+    if (event.status !== 'OPEN') {
+      throw new Error('This event is not open for registration.');
+    }
+
+    if (event.deadline < new Date()) {
+      throw new Error('The registration deadline has passed.');
+    }
+
+    if (event.registrationType === 'INDIVIDUAL') {
+      throw new Error('This event only accepts individual registration.');
+    }
+
+    const totalTeamSize = allEmails.length;
+    if (event.minTeamSize && totalTeamSize < event.minTeamSize) {
+      throw new Error(`This event requires at least ${event.minTeamSize} team members.`);
+    }
+
+    if (event.maxTeamSize && totalTeamSize > event.maxTeamSize) {
+      throw new Error(`This event allows at most ${event.maxTeamSize} team members.`);
+    }
+
+    // Find or create participant records for captain and members
+    const participantRecords: Array<{ id: string; email: string; file: File }> = [];
+
+    // Captain
+    let captainPart = await prisma.participant.findUnique({ where: { email: captainEmail } });
+    if (captainPart) {
+      captainPart = await prisma.participant.update({
+        where: { id: captainPart.id },
+        data: {
+          fullName: captainName || captainPart.fullName,
+          phone: captainPhone || captainPart.phone,
+          cnic: captainCnic,
+          normalizedCnic: captainNormalizedCnic,
+          universityId: ambassador.universityId,
+        },
+      });
+    } else {
+      captainPart = await prisma.participant.create({
+        data: {
+          fullName: captainName || captainEmail.split('@')[0],
+          email: captainEmail,
+          phone: captainPhone || null,
+          cnic: captainCnic,
+          normalizedCnic: captainNormalizedCnic,
+          universityId: ambassador.universityId,
+        },
+      });
+    }
+    participantRecords.push({ id: captainPart.id, email: captainEmail, file: captainStudentDocFile });
+
+    // Members
+    for (let i = 0; i < memberEmails.length; i++) {
+      const mEmail = memberEmails[i];
+      const mName = memberNames[i];
+      const mPhone = memberPhones[i];
+      const mCnic = memberCnics[i];
+      const mNormCnic = memberNormalizedCnics[i];
+
+      let memPart = await prisma.participant.findUnique({ where: { email: mEmail } });
+      if (memPart) {
+        memPart = await prisma.participant.update({
+          where: { id: memPart.id },
+          data: {
+            fullName: mName || memPart.fullName,
+            phone: mPhone || memPart.phone,
+            cnic: mCnic,
+            normalizedCnic: mNormCnic,
+            universityId: ambassador.universityId,
+          },
+        });
+      } else {
+        memPart = await prisma.participant.create({
+          data: {
+            fullName: mName || mEmail.split('@')[0],
+            email: mEmail,
+            phone: mPhone || null,
+            cnic: mCnic,
+            normalizedCnic: mNormCnic,
+            universityId: ambassador.universityId,
+          },
+        });
+      }
+      participantRecords.push({ id: memPart.id, email: mEmail, file: memberFiles[i] });
+    }
+
+    // Upload Student IDs
+    const supabase = await ensurePrivateEvidenceBucket();
+    const uploadedEvidences: Array<{ participantId: string; storagePath: string; file: File }> = [];
+
+    for (const rec of participantRecords) {
+      const path = await uploadEvidence(supabase, eventId, rec.file, uploadedPaths);
+      uploadedEvidences.push({ participantId: rec.id, storagePath: path, file: rec.file });
+    }
+
+    const allParticipantIds = participantRecords.map((r) => r.id);
+
+    // Transaction with lock & capacity check
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
+      `;
+
+      const currentEvent = await tx.event.findUnique({
+        where: { id: eventId },
+        select: { id: true, status: true, deadline: true, seatCapacity: true },
+      });
+
+      if (!currentEvent || currentEvent.status !== 'OPEN' || currentEvent.deadline < new Date()) {
+        throw new Error('Registration is no longer available for this event.');
+      }
+
+      if (currentEvent.seatCapacity !== null) {
+        const reservedSeats = await tx.registration.count({
+          where: {
+            eventId,
+            seatReserved: true,
+            reviewStatus: 'APPROVED',
+          },
+        });
+
+        if (reservedSeats + totalTeamSize > currentEvent.seatCapacity) {
+          throw new Error(
+            `Not enough seats remaining. Required ${totalTeamSize} seats, but only ${
+              currentEvent.seatCapacity - reservedSeats
+            } seats remain.`
+          );
+        }
+      }
+
+      const conflictingRegistration = await tx.registration.findFirst({
+        where: {
+          eventId,
+          reviewStatus: { not: 'REJECTED' },
+          OR: [
+            { participantId: { in: allParticipantIds } },
+            { participant: { is: { normalizedCnic: { in: allCnics } } } },
+            { team: { is: { captainId: { in: allParticipantIds } } } },
+            { team: { is: { members: { some: { participantId: { in: allParticipantIds } } } } } },
+          ],
+        },
+      });
+
+      if (conflictingRegistration) {
+        throw new Error('One or more team members are already registered for this event.');
+      }
+
+      const team = await tx.team.create({
+        data: {
+          name: teamName,
+          captainId: captainPart.id,
+          eventId,
+          universityId: ambassador.universityId,
+          ambassadorId: ambassador.id,
+          members: {
+            create: allParticipantIds.map((participantId) => ({
+              participantId,
+            })),
+          },
+        },
+      });
+
+      const registration = await tx.registration.create({
+        data: {
+          eventId,
+          teamId: team.id,
+          ambassadorId: ambassador.id,
+          source: 'AMBASSADOR',
+          reviewStatus: 'APPROVED',
+          seatReserved: true,
+          status: 'PENDING',
+          accommodationSelection: accommodationSelection as any,
+          accommodationGender,
+          ambassadorApprovedAt: new Date(),
+        },
+      });
+
+      await tx.registrationEvidence.createMany({
+        data: uploadedEvidences.map((ev) => ({
+          registrationId: registration.id,
+          participantId: ev.participantId,
+          type: 'STUDENT_DOCUMENT',
+          reviewStatus: 'VERIFIED',
+          storagePath: ev.storagePath,
+          originalFileName: ev.file.name.slice(0, 180),
+          contentType: ev.file.type,
+          byteSize: BigInt(ev.file.size),
+          uploadedByUserId: user.id,
+        })),
+      });
+    });
+
+    revalidatePath('/ambassador');
+    revalidatePath('/ambassador/participants');
+
+    return {
+      success: `Team "${teamName}" registered successfully with ${totalTeamSize} members.`,
+    };
+  } catch (err: any) {
+    await removeUploadedEvidence(uploadedPaths);
+    return { error: err?.message || 'Failed to register team.' };
   }
+}
 
-  const cleanInputCnic = participantCnic.replaceAll('-', '').trim();
-  if (!cleanInputCnic) {
-    throw new Error('Participant CNIC is required.');
-  }
+export async function registerSelfAction(
+  _prevState: any,
+  formData: FormData
+): Promise<AmbassadorRegistrationState> {
+  const uploadedPaths: string[] = [];
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-  });
+  try {
+    const user = await requireAmbassador();
+    const ambassador = user.ambassador;
+    const participant = user.participant;
 
-  if (!event) {
-    throw new Error('Event not found.');
-  }
+    const eventId = textValue(formData, 'eventId');
+    const participantCnic = textValue(formData, 'participantCnic');
+    const accommodationSelection = textValue(formData, 'accommodationSelection') || 'NONE_OR_ALREADY_ARRANGED';
+    const accommodationGender = textValue(formData, 'accommodationGender') || null;
 
-  if (event.status !== 'OPEN') {
-    throw new Error('This event is not open for registration.');
-  }
+    if (!eventId || !participantCnic) {
+      throw new Error('Event ID and CNIC are required.');
+    }
 
-  if (event.deadline < new Date()) {
-    throw new Error('The registration deadline has passed.');
-  }
+    const normalizedCnic = validateCnic(participantCnic);
 
-  if (event.registrationType === 'TEAM') {
-    throw new Error('This event only accepts team registration.');
-  }
+    const studentDocumentFile = validateFile(
+      getUploadedFile(formData, 'studentDocument'),
+      'Your Student ID'
+    );
 
-  const participant = user.participant!;
-  const cleanStoredCnic = participant.cnic
-    ? participant.cnic.replaceAll('-', '').trim()
-    : '';
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+    });
 
-  if (cleanStoredCnic && cleanStoredCnic.toLowerCase() !== cleanInputCnic.toLowerCase()) {
-    throw new Error('The entered CNIC does not match your participant account.');
-  }
+    if (!event) {
+      throw new Error('Event not found.');
+    }
 
-  if (!cleanStoredCnic) {
+    if (event.status !== 'OPEN') {
+      throw new Error('This event is not open for registration.');
+    }
+
+    if (event.deadline < new Date()) {
+      throw new Error('The registration deadline has passed.');
+    }
+
+    if (event.registrationType === 'TEAM') {
+      throw new Error('This event only accepts team registration.');
+    }
+
+    // Update Ambassador participant CNIC
     await prisma.participant.update({
       where: { id: participant.id },
-      data: { cnic: participantCnic.trim() },
+      data: {
+        cnic: participantCnic,
+        normalizedCnic,
+        universityId: ambassador.universityId,
+      },
     });
-  }
 
-  const existing = await prisma.registration.findFirst({
-    where: {
+    // Upload Student ID
+    const supabase = await ensurePrivateEvidenceBucket();
+    const studentDocPath = await uploadEvidence(
+      supabase,
       eventId,
-      participantId: participant.id,
-    },
-  });
+      studentDocumentFile,
+      uploadedPaths
+    );
 
-  if (existing) {
-    throw new Error('You are already registered for this event.');
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
+      `;
+
+      const currentEvent = await tx.event.findUnique({
+        where: { id: eventId },
+        select: { id: true, status: true, deadline: true, seatCapacity: true },
+      });
+
+      if (!currentEvent || currentEvent.status !== 'OPEN' || currentEvent.deadline < new Date()) {
+        throw new Error('Registration is no longer available for this event.');
+      }
+
+      if (currentEvent.seatCapacity !== null) {
+        const reservedSeats = await tx.registration.count({
+          where: {
+            eventId,
+            seatReserved: true,
+            reviewStatus: 'APPROVED',
+          },
+        });
+
+        if (reservedSeats >= currentEvent.seatCapacity) {
+          throw new Error('All seats for this event have already been reserved.');
+        }
+      }
+
+      const existingRegistration = await tx.registration.findFirst({
+        where: {
+          eventId,
+          reviewStatus: { not: 'REJECTED' },
+          OR: [
+            { participantId: participant.id },
+            { participant: { is: { normalizedCnic } } },
+          ],
+        },
+      });
+
+      if (existingRegistration) {
+        throw new Error('You are already registered for this event.');
+      }
+
+      const registration = await tx.registration.create({
+        data: {
+          eventId,
+          participantId: participant.id,
+          ambassadorId: ambassador.id,
+          source: 'AMBASSADOR',
+          reviewStatus: 'APPROVED',
+          seatReserved: true,
+          status: 'PENDING',
+          accommodationSelection: accommodationSelection as any,
+          accommodationGender,
+          ambassadorApprovedAt: new Date(),
+        },
+      });
+
+      await tx.registrationEvidence.create({
+        data: {
+          registrationId: registration.id,
+          participantId: participant.id,
+          type: 'STUDENT_DOCUMENT',
+          reviewStatus: 'VERIFIED',
+          storagePath: studentDocPath,
+          originalFileName: studentDocumentFile.name.slice(0, 180),
+          contentType: studentDocumentFile.type,
+          byteSize: BigInt(studentDocumentFile.size),
+          uploadedByUserId: user.id,
+        },
+      });
+    });
+
+    revalidatePath('/ambassador');
+    revalidatePath('/ambassador/my-registrations');
+
+    return {
+      success: 'You have been registered successfully and your seat is reserved.',
+    };
+  } catch (err: any) {
+    await removeUploadedEvidence(uploadedPaths);
+    return { error: err?.message || 'Failed to register yourself.' };
   }
-
-  const registration = await prisma.registration.create({
-    data: {
-      eventId,
-      participantId: participant.id,
-      ambassadorId: user.ambassador!.id,
-      source: 'AMBASSADOR',
-      reviewStatus: 'APPROVED',
-      seatReserved: true,
-      ambassadorApprovedAt: new Date(),
-    },
-  });
-
-  revalidatePath('/ambassador');
-  revalidatePath('/ambassador/payments');
-  revalidatePath(`/events/${eventId}`);
-
-  redirect('/ambassador');
 }
 
 export async function submitBatchPaymentAction(formData: FormData) {
@@ -433,10 +780,7 @@ export async function submitBatchPaymentAction(formData: FormData) {
   const fail = (message: string): never =>
     redirect(`/ambassador/payments?error=${encodeURIComponent(message)}`);
 
-  const ambassador = await prisma.ambassador.findUnique({
-    where: { id: user.ambassador!.id },
-  });
-  if (!ambassador) fail('Ambassador record not found.');
+  const ambassador = user.ambassador;
 
   const invoiceIds = Array.from(
     new Set(
@@ -459,7 +803,7 @@ export async function submitBatchPaymentAction(formData: FormData) {
     where: {
       AND: [
         { id: { in: invoiceIds } },
-        ambassadorInvoiceScope(ambassador!, user.participant?.id),
+        ambassadorInvoiceScope(ambassador, user.participant?.id),
         PAYABLE_INVOICE_FILTER,
       ],
     },
@@ -500,10 +844,7 @@ export async function submitCampusPaymentAction(formData: FormData) {
   const fail = (message: string): never =>
     redirect(`/ambassador/payments?error=${encodeURIComponent(message)}`);
 
-  const ambassador = await prisma.ambassador.findUnique({
-    where: { id: user.ambassador!.id },
-  });
-  if (!ambassador) fail('Ambassador record not found.');
+  const ambassador = user.ambassador;
 
   const method = String(formData.get('method') ?? '').trim();
   const referenceNumber = String(formData.get('referenceNumber') ?? '').trim();
@@ -511,13 +852,12 @@ export async function submitCampusPaymentAction(formData: FormData) {
 
   if (!method) fail('Payment method is required.');
 
-  // Find all unpaid invoices for this ambassador's campus scope that are PENDING and not linked to a CampusPayment
   const campusScopeWhere = {
     OR: [
-      { ambassadorId: ambassador!.id },
-      { team: { ambassadorId: ambassador!.id } },
-      { participant: { universityId: ambassador!.universityId } },
-      { team: { universityId: ambassador!.universityId } },
+      { ambassadorId: ambassador.id },
+      { team: { ambassadorId: ambassador.id } },
+      { participant: { universityId: ambassador.universityId } },
+      { team: { universityId: ambassador.universityId } },
     ],
   };
 
@@ -533,13 +873,12 @@ export async function submitCampusPaymentAction(formData: FormData) {
     fail('No unpaid invoices found for your campus.');
   }
 
-  // Calculate total on SERVER from DB
   const totalAmount = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
 
   await prisma.$transaction(async (tx) => {
     const campusPayment = await tx.campusPayment.create({
       data: {
-        ambassadorId: ambassador!.id,
+        ambassadorId: ambassador.id,
         totalAmount,
         method,
         referenceNumber: referenceNumber || null,
