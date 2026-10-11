@@ -5,8 +5,18 @@ import { getCurrentUser } from '@/lib/auth';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 import type { RegistrationType, EventStatus } from '@prisma/client';
+
+function generateAmbassadorPassword(): string {
+  const chars =
+    'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+
+  return Array.from(
+    { length: 8 },
+    () => chars[randomInt(chars.length)]
+  ).join('');
+}
 
 async function requireSuperAdmin() {
   const user = await getCurrentUser();
@@ -334,34 +344,170 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
 
   const ambassador = await prisma.ambassador.findUnique({
     where: { id: ambassadorId },
-    include: { _count: { select: { teams: true } } },
+    include: {
+      user: {
+        include: {
+          participant: {
+            include: {
+              registrations: { select: { id: true } },
+              captainOfTeams: { select: { id: true } },
+              teamMemberships: { select: { id: true } },
+              registrationEvidence: { select: { id: true } },
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          teams: true,
+          registrations: true,
+          campusPayments: true,
+          collectiveInvoices: true,
+        },
+      },
+    },
   });
 
   if (!ambassador) {
     throw new Error('Ambassador not found.');
   }
 
-  if (ambassador._count.teams > 0) {
-    throw new Error('This ambassador has teams linked to them and cannot be deleted.');
+  // These records have required/restricting relationships to Ambassador.
+  // Do not destroy financial history to force deletion.
+  if (
+    ambassador._count.campusPayments > 0 ||
+    ambassador._count.collectiveInvoices > 0
+  ) {
+    throw new Error(
+      'This ambassador has financial records. Preserve those records and resolve their ambassador references before deleting the assignment.'
+    );
   }
 
-  const supabaseAdmin = createSupabaseAdminClient();
-  await supabaseAdmin.auth.admin.deleteUser(ambassador.userId);
+  const participant = ambassador.user.participant;
 
-  await prisma.ambassador.delete({ where: { id: ambassadorId } });
-  await prisma.user.delete({ where: { id: ambassador.userId } });
+  const hasParticipantHistory = Boolean(
+    participant &&
+      (
+        participant.registrations.length > 0 ||
+        participant.captainOfTeams.length > 0 ||
+        participant.teamMemberships.length > 0 ||
+        participant.registrationEvidence.length > 0
+      )
+  );
 
-  await prisma.auditLog.create({
-    data: {
-      userId: admin.id,
-      action: 'DELETE',
-      targetTable: 'Ambassador',
-      targetId: ambassadorId,
-      details: { ambassadorCode: ambassador.ambassadorCode },
-    },
-  });
+  const hasAmbassadorHistory =
+    ambassador._count.teams > 0 ||
+    ambassador._count.registrations > 0 ||
+    ambassador._count.campusPayments > 0 ||
+    ambassador._count.collectiveInvoices > 0;
+
+  const preserveAccount =
+    hasParticipantHistory || hasAmbassadorHistory;
+
+  // Inspect CampusPayment, CollectiveInvoice and all other relations
+  // before deleting the Ambassador. Do not delete financial history.
+  // If a required relation prevents safe deletion, throw an actionable error.
+
+  if (preserveAccount) {
+    await prisma.$transaction(async (tx) => {
+      // Team.ambassadorId and Registration.ambassadorId are optional
+      // in the inspected schema. Detach these references while preserving
+      // the corresponding teams and registrations.
+      await tx.team.updateMany({
+        where: { ambassadorId: ambassadorId },
+        data: { ambassadorId: null },
+      });
+
+      await tx.registration.updateMany({
+        where: { ambassadorId: ambassadorId },
+        data: { ambassadorId: null },
+      });
+
+      // Delete the assignment, not the University or participant.
+      // Before executing this deletion, verify that no required
+      // CampusPayment or CollectiveInvoice relation blocks it.
+      await tx.ambassador.delete({
+        where: { id: ambassadorId },
+      });
+
+      await tx.user.update({
+        where: { id: ambassador.userId },
+        data: { role: 'PARTICIPANT' },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: 'DELETE',
+          targetTable: 'Ambassador',
+          targetId: ambassadorId,
+          details: {
+            ambassadorCode: ambassador.ambassadorCode,
+            userId: ambassador.userId,
+            outcome: 'Ambassador status revoked; account and event history preserved.',
+          },
+        },
+      });
+    });
+  } else {
+    // Before deleting the user, inspect all User and Participant
+    // foreign-key dependencies in prisma/schema.prisma.
+    // Preserve audit/history records; never cascade-delete event data.
+    await prisma.$transaction(async (tx) => {
+      if (participant) {
+        await tx.ambassadorRequest.updateMany({
+          where: { participantId: participant.id },
+          data: { participantId: null },
+        });
+
+        await tx.participant.delete({
+          where: { id: participant.id },
+        });
+      }
+
+      await tx.ambassador.delete({
+        where: { id: ambassadorId },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: 'DELETE',
+          targetTable: 'Ambassador',
+          targetId: ambassadorId,
+          details: {
+            ambassadorCode: ambassador.ambassadorCode,
+            userId: ambassador.userId,
+            outcome: 'Unregistered ambassador account removed.',
+          },
+        },
+      });
+
+      // Delete only after confirming no remaining foreign-key
+      // dependency prevents User deletion.
+      await tx.user.delete({
+        where: { id: ambassador.userId },
+      });
+    });
+
+    // Prisma and Supabase Auth cannot participate in the same transaction.
+    // Delete the Auth user only after the Prisma transaction succeeds.
+    const supabaseAdmin = createSupabaseAdminClient();
+
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(
+      ambassador.userId
+    );
+
+    if (error) {
+      throw new Error(
+        'Prisma records were deleted, but Supabase Auth account cleanup failed. Manual cleanup or a retry is required: ' +
+          error.message
+      );
+    }
+  }
 
   revalidatePath('/admin/ambassadors');
+  revalidatePath('/admin/ambassador-requests');
 }
 
 function revalidatePaymentPages() {
@@ -487,13 +633,33 @@ export async function rejectBatchAction(batchId: string) {
   revalidatePaymentPages();
 }
 
+export type AmbassadorApprovalResult = {
+  error?: string;
+  credentials?: {
+    email: string;
+    password: string;
+  };
+};
+
 export async function approveAmbassadorRequestAction(
-  formData: FormData
-) {
+  prevState: AmbassadorApprovalResult | FormData | null | undefined,
+  formDataArg?: FormData
+): Promise<AmbassadorApprovalResult> {
+  const formData =
+    formDataArg instanceof FormData
+      ? formDataArg
+      : prevState instanceof FormData
+      ? prevState
+      : null;
+
+  if (!formData) {
+    return { error: 'Request data is missing.' };
+  }
+
   const admin = await getCurrentUser();
 
   if (!admin || admin.role !== 'SUPER_ADMIN') {
-    throw new Error('Only Super Admin can approve Ambassador requests.');
+    return { error: 'Only Super Admin can approve Ambassador requests.' };
   }
 
   const requestId = String(formData.get('requestId') ?? '').trim();
@@ -501,7 +667,7 @@ export async function approveAmbassadorRequestAction(
   const ambassadorCode = String(formData.get('ambassadorCode') ?? '').trim();
 
   if (!requestId || !universityId || !ambassadorCode) {
-    throw new Error('Request, university, and Ambassador code are required.');
+    return { error: 'Request, university, and Ambassador code are required.' };
   }
 
   const request = await prisma.ambassadorRequest.findUnique({
@@ -516,11 +682,11 @@ export async function approveAmbassadorRequestAction(
   });
 
   if (!request) {
-    throw new Error('Ambassador request not found.');
+    return { error: 'Ambassador request not found.' };
   }
 
   if (request.status !== 'PENDING') {
-    throw new Error('This request has already been reviewed.');
+    return { error: 'This request has already been reviewed.' };
   }
 
   const university = await prisma.university.findUnique({
@@ -528,14 +694,14 @@ export async function approveAmbassadorRequestAction(
   });
 
   if (!university) {
-    throw new Error('University not found.');
+    return { error: 'University not found.' };
   }
 
   const existingAmbassadorForUni = await prisma.ambassador.findFirst({
     where: { universityId },
   });
   if (existingAmbassadorForUni) {
-    throw new Error('This university already has a campus ambassador.');
+    return { error: 'This university already has a campus ambassador.' };
   }
 
   const existingCode = await prisma.ambassador.findUnique({
@@ -543,20 +709,24 @@ export async function approveAmbassadorRequestAction(
   });
 
   if (existingCode) {
-    throw new Error('That Ambassador code is already in use.');
+    return { error: 'That Ambassador code is already in use.' };
   }
 
-  let targetUserId: string;
   const applicantEmail = (request.participant?.email ?? request.email ?? '').toLowerCase().trim();
   const applicantName = request.participant?.fullName ?? request.fullName ?? 'Ambassador User';
   const applicantPhone = request.participant?.phone ?? request.phone ?? null;
   const applicantCnic = request.participant?.cnic ?? request.cnic ?? null;
 
   if (!applicantEmail) {
-    throw new Error('Applicant email is required for approval.');
+    return { error: 'Applicant email is required for approval.' };
   }
 
-  let existingUser = request.participant?.user ?? (await prisma.user.findUnique({ where: { email: applicantEmail } }));
+  const generatedPassword = generateAmbassadorPassword();
+  const supabaseAdmin = createSupabaseAdminClient();
+
+  let targetUserId: string;
+  let newlyCreatedAuthUserId: string | null = null;
+  const existingUser = request.participant?.user ?? (await prisma.user.findUnique({ where: { email: applicantEmail } }));
 
   if (existingUser) {
     targetUserId = existingUser.id;
@@ -566,80 +736,165 @@ export async function approveAmbassadorRequestAction(
     });
 
     if (existingAmbassador) {
-      throw new Error('This applicant is already an Ambassador.');
+      return { error: 'This applicant is already an Ambassador.' };
+    }
+
+    const { data: authUserCheck, error: authUserError } =
+      await supabaseAdmin.auth.admin.getUserById(targetUserId);
+
+    if (authUserError || !authUserCheck.user || authUserCheck.user.id !== targetUserId) {
+      return {
+        error: 'Could not verify matching authentication account. No approval was completed.',
+      };
+    }
+
+    if (authUserCheck.user.email?.toLowerCase() !== applicantEmail) {
+      return {
+        error: 'Authentication email does not match user account. No approval was completed.',
+      };
+    }
+
+    const { data: authData, error: authError } =
+      await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
+        password: generatedPassword,
+        email: applicantEmail,
+        email_confirm: true,
+      });
+
+    if (authError || !authData.user) {
+      return {
+        error: 'Could not set the Ambassador login credentials. No approval was completed.',
+      };
     }
 
     await prisma.user.update({
       where: { id: targetUserId },
-      data: { role: 'AMBASSADOR' },
+      data: { role: 'AMBASSADOR', isActive: true },
     });
   } else {
-    const supabaseAdmin = createSupabaseAdminClient();
-    const defaultPassword = `Kishwar@2026`;
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: applicantEmail,
-      password: defaultPassword,
-      email_confirm: true,
-    });
+    const { data: authData, error: authError } =
+      await supabaseAdmin.auth.admin.createUser({
+        email: applicantEmail,
+        password: generatedPassword,
+        email_confirm: true,
+      });
 
     if (authError || !authData.user) {
-      throw new Error(`Failed to create ambassador account in authentication: ${authError?.message ?? 'Unknown error'}`);
+      return {
+        error: 'Could not create the Ambassador login credentials. No approval was completed.',
+      };
     }
 
     targetUserId = authData.user.id;
+    newlyCreatedAuthUserId = authData.user.id;
 
-    await prisma.user.create({
-      data: {
-        id: targetUserId,
-        email: applicantEmail,
-        role: 'AMBASSADOR',
-      },
-    });
+    try {
+      await prisma.user.create({
+        data: {
+          id: targetUserId,
+          email: applicantEmail,
+          role: 'AMBASSADOR',
+          isActive: true,
+        },
+      });
+    } catch (err: any) {
+      await supabaseAdmin.auth.admin.deleteUser(newlyCreatedAuthUserId).catch(() => {});
+      return {
+        error: 'Could not initialize the Ambassador user profile. No approval was completed.',
+      };
+    }
   }
 
-  const existingParticipant = await prisma.participant.findUnique({
-    where: { userId: targetUserId },
-  });
-
-  if (!existingParticipant) {
-    await prisma.participant.create({
-      data: {
-        userId: targetUserId,
-        fullName: applicantName,
-        email: applicantEmail,
-        phone: applicantPhone,
-        cnic: applicantCnic,
-      },
+  try {
+    let participant = await prisma.participant.findUnique({
+      where: { userId: targetUserId },
     });
+
+    if (!participant && request.participantId) {
+      participant = await prisma.participant.findUnique({
+        where: { id: request.participantId },
+      });
+    }
+
+    if (!participant) {
+      participant = await prisma.participant.findUnique({
+        where: { email: applicantEmail },
+      });
+    }
+
+    if (participant) {
+      participant = await prisma.participant.update({
+        where: { id: participant.id },
+        data: {
+          userId: targetUserId,
+          universityId: participant.universityId ?? universityId,
+        },
+      });
+    } else {
+      participant = await prisma.participant.create({
+        data: {
+          userId: targetUserId,
+          fullName: applicantName,
+          email: applicantEmail,
+          phone: applicantPhone,
+          cnic: applicantCnic,
+          universityId,
+        },
+      });
+    }
+
+    await prisma.participant.updateMany({
+      where: { userId: targetUserId, universityId: null },
+      data: { universityId },
+    });
+
+    await prisma.$transaction([
+      prisma.ambassador.create({
+        data: {
+          userId: targetUserId,
+          universityId,
+          ambassadorCode,
+        },
+      }),
+
+      prisma.ambassadorRequest.update({
+        where: { id: request.id },
+        data: {
+          status: 'APPROVED',
+          participantId: participant.id,
+          reviewedById: admin.id,
+          reviewedAt: new Date(),
+        },
+      }),
+    ]);
+  } catch (dbErr: any) {
+    if (newlyCreatedAuthUserId) {
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(newlyCreatedAuthUserId);
+      } catch {
+        // ignore rollback errors
+      }
+      try {
+        await prisma.user.delete({ where: { id: newlyCreatedAuthUserId } });
+      } catch {
+        // ignore rollback errors
+      }
+    }
+    return {
+      error: `Failed to complete Ambassador database approval: ${dbErr?.message ?? 'Unknown database error'}`,
+    };
   }
-
-  await prisma.participant.updateMany({
-    where: { userId: targetUserId, universityId: null },
-    data: { universityId },
-  });
-
-  await prisma.$transaction([
-    prisma.ambassador.create({
-      data: {
-        userId: targetUserId,
-        universityId,
-        ambassadorCode,
-      },
-    }),
-
-    prisma.ambassadorRequest.update({
-      where: { id: request.id },
-      data: {
-        status: 'APPROVED',
-        reviewedById: admin.id,
-        reviewedAt: new Date(),
-      },
-    }),
-  ]);
 
   revalidatePath('/admin/ambassador-requests');
   revalidatePath('/admin/ambassadors');
   revalidatePath('/ambassador-application');
+
+  return {
+    credentials: {
+      email: applicantEmail,
+      password: generatedPassword,
+    },
+  };
 }
 
 export async function rejectAmbassadorRequestAction(

@@ -1,10 +1,8 @@
 import React from 'react';
 import { prisma } from '@/lib/prisma';
-import {
-  approveAmbassadorRequestAction,
-  rejectAmbassadorRequestAction,
-} from '../actions';
+import { rejectAmbassadorRequestAction } from '../actions';
 import { Button } from '@/components/ui/Button';
+import { ApproveAmbassadorForm } from '@/components/dashboard/approve-ambassador-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -172,50 +170,12 @@ export default async function AmbassadorRequestsPage() {
                   Review Action
                 </h3>
 
-                <form
-                  action={approveAmbassadorRequestAction}
-                  className="flex max-w-xl flex-col gap-4 p-5 rounded-[var(--radius-md)] border border-[var(--color-divider)] bg-[var(--color-background)]"
-                >
-                  <input type="hidden" name="requestId" value={request.id} />
-
-                  <div>
-                    <label className="form-label">Assign University</label>
-                    <select
-                      name="universityId"
-                      required
-                      defaultValue={request.universityId ?? ''}
-                      className="form-input"
-                    >
-                      <option value="">Select University</option>
-                      {universities.map((university) => {
-                        const isTaken = assignedUniIds.has(university.id);
-                        return (
-                          <option key={university.id} value={university.id} disabled={isTaken}>
-                            {university.name}
-                            {university.city ? ` (${university.city})` : ''}
-                            {isTaken ? ' (already has an ambassador)' : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="form-label">Ambassador Code</label>
-                    <input
-                      name="ambassadorCode"
-                      required
-                      placeholder="e.g. AMB-FAST-001"
-                      className="form-input"
-                    />
-                  </div>
-
-                  <div className="mt-2 flex items-center gap-3">
-                    <Button type="submit" variant="success" size="sm">
-                      Approve Ambassador
-                    </Button>
-                  </div>
-                </form>
+                <ApproveAmbassadorForm
+                  requestId={request.id}
+                  defaultUniversityId={request.universityId}
+                  universities={universities}
+                  assignedUniversityIds={Array.from(assignedUniIds)}
+                />
 
                 <form action={rejectAmbassadorRequestAction} className="mt-1">
                   <input type="hidden" name="requestId" value={request.id} />
