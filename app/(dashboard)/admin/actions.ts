@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { randomInt, randomUUID } from 'crypto';
 import type { RegistrationType, EventStatus } from '@prisma/client';
+import { encryptAmbassadorPassword } from '@/lib/encryption';
 
 function generateAmbassadorPassword(): string {
   const chars =
@@ -277,6 +278,13 @@ export async function createAmbassadorAction(formData: FormData) {
     redirect('/admin/ambassadors?error=Password must be at least 8 characters.');
   }
 
+  let passwordEncrypted: string;
+  try {
+    passwordEncrypted = encryptAmbassadorPassword(password);
+  } catch (encErr: any) {
+    redirect(`/admin/ambassadors?error=${encodeURIComponent('Encryption error: ' + (encErr?.message ?? 'Failed to encrypt password.'))}`);
+  }
+
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
     redirect('/admin/ambassadors?error=A user with this email already exists.');
@@ -310,6 +318,7 @@ export async function createAmbassadorAction(formData: FormData) {
         userId: data.user!.id,
         universityId,
         ambassadorCode,
+        passwordEncrypted,
       },
     });
   } catch (err: any) {
@@ -670,6 +679,7 @@ export type AmbassadorApprovalResult = {
   credentials?: {
     email: string;
     password: string;
+    ambassadorCode: string;
   };
 };
 
@@ -697,9 +707,23 @@ export async function approveAmbassadorRequestAction(
   const requestId = String(formData.get('requestId') ?? '').trim();
   const universityId = String(formData.get('universityId') ?? '').trim();
   const ambassadorCode = String(formData.get('ambassadorCode') ?? '').trim();
+  const password = String(formData.get('password') ?? '');
 
-  if (!requestId || !universityId || !ambassadorCode) {
-    return { error: 'Request, university, and Ambassador code are required.' };
+  if (!requestId || !universityId || !ambassadorCode || !password) {
+    return { error: 'Request, university, Ambassador code, and login password are required.' };
+  }
+
+  if (password.length < 8) {
+    return { error: 'Login password must be at least 8 characters long.' };
+  }
+
+  let passwordEncrypted: string;
+  try {
+    passwordEncrypted = encryptAmbassadorPassword(password);
+  } catch (encErr: any) {
+    return {
+      error: `Server encryption error: ${encErr?.message ?? 'Password encryption failed. Please check server configuration.'}`,
+    };
   }
 
   const request = await prisma.ambassadorRequest.findUnique({
@@ -753,7 +777,6 @@ export async function approveAmbassadorRequestAction(
     return { error: 'Applicant email is required for approval.' };
   }
 
-  const generatedPassword = generateAmbassadorPassword();
   const supabaseAdmin = createSupabaseAdminClient();
 
   let targetUserId: string;
@@ -788,7 +811,7 @@ export async function approveAmbassadorRequestAction(
 
     const { data: authData, error: authError } =
       await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
-        password: generatedPassword,
+        password,
         email: applicantEmail,
         email_confirm: true,
       });
@@ -798,16 +821,11 @@ export async function approveAmbassadorRequestAction(
         error: 'Could not set the Ambassador login credentials. No approval was completed.',
       };
     }
-
-    await prisma.user.update({
-      where: { id: targetUserId },
-      data: { role: 'AMBASSADOR', isActive: true },
-    });
   } else {
     const { data: authData, error: authError } =
       await supabaseAdmin.auth.admin.createUser({
         email: applicantEmail,
-        password: generatedPassword,
+        password,
         email_confirm: true,
       });
 
@@ -881,14 +899,18 @@ export async function approveAmbassadorRequestAction(
     });
 
     await prisma.$transaction([
+      prisma.user.update({
+        where: { id: targetUserId },
+        data: { role: 'AMBASSADOR', isActive: true },
+      }),
       prisma.ambassador.create({
         data: {
           userId: targetUserId,
           universityId,
           ambassadorCode,
+          passwordEncrypted,
         },
       }),
-
       prisma.ambassadorRequest.update({
         where: { id: request.id },
         data: {
@@ -911,9 +933,13 @@ export async function approveAmbassadorRequestAction(
       } catch {
         // ignore rollback errors
       }
+      return {
+        error: `Failed to complete Ambassador database approval: ${dbErr?.message ?? 'Unknown database error'}`,
+      };
     }
+
     return {
-      error: `Failed to complete Ambassador database approval: ${dbErr?.message ?? 'Unknown database error'}`,
+      error: `Database approval failed after updating authentication credentials: ${dbErr?.message ?? 'Unknown database error'}. The login password was set in Supabase Auth, but Ambassador database records could not be finalized. Please reset credentials or retry.`,
     };
   }
 
@@ -924,9 +950,96 @@ export async function approveAmbassadorRequestAction(
   return {
     credentials: {
       email: applicantEmail,
-      password: generatedPassword,
+      password,
+      ambassadorCode,
     },
   };
+}
+
+export async function resetAmbassadorPasswordAction(
+  formData: FormData
+): Promise<{ success?: boolean; error?: string }> {
+  const admin = await getCurrentUser();
+
+  if (!admin || admin.role !== 'SUPER_ADMIN') {
+    return { error: 'Only Super Admin can reset Ambassador passwords.' };
+  }
+
+  const ambassadorId = String(formData.get('ambassadorId') ?? '').trim();
+  const newPassword = String(formData.get('newPassword') ?? '');
+
+  if (!ambassadorId || !newPassword) {
+    return { error: 'Ambassador ID and new password are required.' };
+  }
+
+  if (newPassword.length < 8) {
+    return { error: 'Password must be at least 8 characters long.' };
+  }
+
+  const ambassador = await prisma.ambassador.findUnique({
+    where: { id: ambassadorId },
+    include: { user: true },
+  });
+
+  if (!ambassador) {
+    return { error: 'Ambassador record not found.' };
+  }
+
+  let passwordEncrypted: string;
+  try {
+    passwordEncrypted = encryptAmbassadorPassword(newPassword);
+  } catch (encErr: any) {
+    return {
+      error: `Encryption error: ${encErr?.message ?? 'Failed to encrypt password.'}`,
+    };
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient();
+  const { data: authUser, error: authCheckError } =
+    await supabaseAdmin.auth.admin.getUserById(ambassador.userId);
+
+  if (authCheckError || !authUser?.user) {
+    return { error: 'Could not verify linked Supabase Auth user.' };
+  }
+
+  const { error: updateAuthError } =
+    await supabaseAdmin.auth.admin.updateUserById(ambassador.userId, {
+      password: newPassword,
+    });
+
+  if (updateAuthError) {
+    return {
+      error: `Failed to update password in authentication system: ${updateAuthError.message}`,
+    };
+  }
+
+  try {
+    await prisma.ambassador.update({
+      where: { id: ambassadorId },
+      data: { passwordEncrypted },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: admin.id,
+        action: 'UPDATE',
+        targetTable: 'Ambassador',
+        targetId: ambassadorId,
+        details: {
+          ambassadorCode: ambassador.ambassadorCode,
+          userId: ambassador.userId,
+          actionDescription: 'Reset ambassador password',
+        },
+      },
+    });
+  } catch (dbErr: any) {
+    return {
+      error: `Password was updated in auth, but failed to save encrypted password to database: ${dbErr?.message ?? 'Unknown database error'}`,
+    };
+  }
+
+  revalidatePath('/admin/ambassadors');
+  return { success: true };
 }
 
 export async function rejectAmbassadorRequestAction(

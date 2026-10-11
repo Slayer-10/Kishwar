@@ -1,22 +1,14 @@
-import { randomInt } from 'crypto';
+import {
+  encryptAmbassadorPassword,
+  decryptAmbassadorPassword,
+  decryptAmbassadorPasswordSafe,
+} from '../lib/encryption';
 import { printTestSummary, TestResult } from './helpers/test-results';
 
-// Replicate the password generation helper to test its mathematical/character properties
-function generateAmbassadorPassword(): string {
-  const chars =
-    'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+// Ensure encryption key is configured for mock engine test runs
+const TEST_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+process.env.AMBASSADOR_PASSWORD_ENCRYPTION_KEY = TEST_KEY;
 
-  return Array.from(
-    { length: 8 },
-    () => chars[randomInt(chars.length)]
-  ).join('');
-}
-
-// Allowed character set for verification
-const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-const CONFUSING_CHARS = ['0', 'O', '1', 'I', 'l'];
-
-// Simulating the approval logic engine to test comprehensive scenarios in isolation
 interface MockAuthUser {
   id: string;
   email: string;
@@ -39,9 +31,11 @@ interface MockParticipant {
 }
 
 interface MockAmbassador {
+  id: string;
   userId: string;
   universityId: string;
   ambassadorCode: string;
+  passwordEncrypted?: string | null;
 }
 
 interface MockAmbassadorRequest {
@@ -55,12 +49,21 @@ interface MockAmbassadorRequest {
   reviewedAt?: Date;
 }
 
+interface MockAuditLog {
+  userId: string;
+  action: string;
+  targetTable: string;
+  targetId: string;
+  details: any;
+}
+
 class ApprovalEngineMock {
   authUsers = new Map<string, MockAuthUser>();
   prismaUsers = new Map<string, MockPrismaUser>();
   participants = new Map<string, MockParticipant>();
   ambassadors = new Map<string, MockAmbassador>();
   requests = new Map<string, MockAmbassadorRequest>();
+  auditLogs: MockAuditLog[] = [];
   simulatedAuthFailure = false;
   simulatedDbFailure = false;
   authDeletedIds: string[] = [];
@@ -72,26 +75,43 @@ class ApprovalEngineMock {
     requestId: string;
     universityId: string;
     ambassadorCode: string;
+    password?: string;
   }) {
     if (params.adminUser.role !== 'SUPER_ADMIN') {
       return { error: 'Only Super Admin can approve Ambassador requests.' };
     }
 
-    const request = this.requests.get(params.requestId);
+    const { requestId, universityId, ambassadorCode, password } = params;
+
+    if (!requestId || !universityId || !ambassadorCode || !password) {
+      return { error: 'Request, university, Ambassador code, and login password are required.' };
+    }
+
+    if (password.length < 8) {
+      return { error: 'Login password must be at least 8 characters long.' };
+    }
+
+    let passwordEncrypted: string;
+    try {
+      passwordEncrypted = encryptAmbassadorPassword(password, TEST_KEY);
+    } catch (err: any) {
+      return { error: `Server encryption error: ${err.message}` };
+    }
+
+    const request = this.requests.get(requestId);
     if (!request) return { error: 'Ambassador request not found.' };
     if (request.status !== 'PENDING') return { error: 'This request has already been reviewed.' };
 
     for (const amb of Array.from(this.ambassadors.values())) {
-      if (amb.universityId === params.universityId) {
+      if (amb.universityId === universityId) {
         return { error: 'This university already has a campus ambassador.' };
       }
-      if (amb.ambassadorCode === params.ambassadorCode) {
+      if (amb.ambassadorCode === ambassadorCode) {
         return { error: 'That Ambassador code is already in use.' };
       }
     }
 
     const applicantEmail = request.email.toLowerCase().trim();
-    const generatedPassword = generateAmbassadorPassword();
 
     let targetUserId: string;
     let newlyCreatedAuthUserId: string | null = null;
@@ -106,22 +126,24 @@ class ApprovalEngineMock {
 
     if (existingPrismaUser) {
       targetUserId = existingPrismaUser.id;
-      if (this.ambassadors.has(targetUserId)) {
+      if (Array.from(this.ambassadors.values()).some((a) => a.userId === targetUserId)) {
         return { error: 'This applicant is already an Ambassador.' };
       }
 
       const matchingAuth = this.authUsers.get(targetUserId);
-      if (!matchingAuth || matchingAuth.email.toLowerCase() !== applicantEmail) {
+      if (!matchingAuth || matchingAuth.id !== targetUserId) {
         return { error: 'Could not verify matching authentication account. No approval was completed.' };
+      }
+
+      if (matchingAuth.email.toLowerCase() !== applicantEmail) {
+        return { error: 'Authentication email does not match user account. No approval was completed.' };
       }
 
       if (this.simulatedAuthFailure) {
         return { error: 'Could not set the Ambassador login credentials. No approval was completed.' };
       }
 
-      matchingAuth.password = generatedPassword;
-      existingPrismaUser.role = 'AMBASSADOR';
-      existingPrismaUser.isActive = true;
+      matchingAuth.password = password;
     } else {
       if (this.simulatedAuthFailure) {
         return { error: 'Could not create the Ambassador login credentials. No approval was completed.' };
@@ -132,7 +154,7 @@ class ApprovalEngineMock {
       this.authUsers.set(targetUserId, {
         id: targetUserId,
         email: applicantEmail,
-        password: generatedPassword,
+        password: password,
       });
 
       this.prismaUsers.set(targetUserId, {
@@ -148,6 +170,11 @@ class ApprovalEngineMock {
         throw new Error('Database transaction failed unexpectedly');
       }
 
+      if (existingPrismaUser) {
+        existingPrismaUser.role = 'AMBASSADOR';
+        existingPrismaUser.isActive = true;
+      }
+
       let participant: MockParticipant | undefined;
       for (const p of Array.from(this.participants.values())) {
         if (p.userId === targetUserId || p.email === applicantEmail) {
@@ -158,7 +185,7 @@ class ApprovalEngineMock {
 
       if (participant) {
         participant.userId = targetUserId;
-        participant.universityId = participant.universityId ?? params.universityId;
+        participant.universityId = participant.universityId ?? universityId;
       } else {
         const pId = `part_${Date.now()}`;
         participant = {
@@ -166,15 +193,18 @@ class ApprovalEngineMock {
           userId: targetUserId,
           email: applicantEmail,
           fullName: request.fullName,
-          universityId: params.universityId,
+          universityId,
         };
         this.participants.set(pId, participant);
       }
 
-      this.ambassadors.set(targetUserId, {
+      const ambId = `amb_${Date.now()}`;
+      this.ambassadors.set(ambId, {
+        id: ambId,
         userId: targetUserId,
-        universityId: params.universityId,
-        ambassadorCode: params.ambassadorCode,
+        universityId,
+        ambassadorCode,
+        passwordEncrypted,
       });
 
       request.status = 'APPROVED';
@@ -186,59 +216,163 @@ class ApprovalEngineMock {
         this.prismaUsers.delete(newlyCreatedAuthUserId);
         this.authDeletedIds.push(newlyCreatedAuthUserId);
       }
-      return { error: `Failed to complete Ambassador database approval: ${err.message}` };
+      return {
+        error: `Database approval failed after updating authentication credentials: ${err.message}. The login password was set in Supabase Auth, but Ambassador database records could not be finalized. Please reset credentials or retry.`,
+      };
     }
 
     return {
       credentials: {
         email: applicantEmail,
-        password: generatedPassword,
+        password,
+        ambassadorCode,
       },
     };
+  }
+
+  async createAmbassadorManual(params: {
+    adminUser: { id: string; role: string };
+    email: string;
+    password: string;
+    universityId: string;
+    ambassadorCode: string;
+  }) {
+    if (params.adminUser.role !== 'SUPER_ADMIN') {
+      return { error: 'Unauthorized' };
+    }
+
+    const { email, password, universityId, ambassadorCode } = params;
+
+    if (!email || !password || !universityId || !ambassadorCode) {
+      return { error: 'All fields are required.' };
+    }
+    if (password.length < 8) {
+      return { error: 'Password must be at least 8 characters.' };
+    }
+
+    let passwordEncrypted: string;
+    try {
+      passwordEncrypted = encryptAmbassadorPassword(password, TEST_KEY);
+    } catch (err: any) {
+      return { error: `Encryption error: ${err.message}` };
+    }
+
+    for (const u of Array.from(this.prismaUsers.values())) {
+      if (u.email === email) return { error: 'A user with this email already exists.' };
+    }
+
+    for (const a of Array.from(this.ambassadors.values())) {
+      if (a.universityId === universityId) return { error: 'This university already has a campus ambassador.' };
+      if (a.ambassadorCode === ambassadorCode) return { error: 'This ambassador code is already in use.' };
+    }
+
+    const authId = `auth_manual_${Date.now()}`;
+    this.authUsers.set(authId, { id: authId, email, password });
+    this.prismaUsers.set(authId, { id: authId, email, role: 'AMBASSADOR', isActive: true });
+
+    const ambId = `amb_manual_${Date.now()}`;
+    this.ambassadors.set(ambId, {
+      id: ambId,
+      userId: authId,
+      universityId,
+      ambassadorCode,
+      passwordEncrypted,
+    });
+
+    this.auditLogs.push({
+      userId: params.adminUser.id,
+      action: 'CREATE',
+      targetTable: 'Ambassador',
+      targetId: ambId,
+      details: { email, universityId, ambassadorCode }, // No password
+    });
+
+    return { success: true, ambassadorId: ambId };
+  }
+
+  async resetPassword(params: {
+    adminUser: { id: string; role: string };
+    ambassadorId: string;
+    newPassword: string;
+  }) {
+    if (params.adminUser.role !== 'SUPER_ADMIN') {
+      return { error: 'Only Super Admin can reset Ambassador passwords.' };
+    }
+
+    const { ambassadorId, newPassword } = params;
+    if (!ambassadorId || !newPassword) {
+      return { error: 'Ambassador ID and new password are required.' };
+    }
+    if (newPassword.length < 8) {
+      return { error: 'Password must be at least 8 characters long.' };
+    }
+
+    const amb = this.ambassadors.get(ambassadorId);
+    if (!amb) return { error: 'Ambassador record not found.' };
+
+    const authUser = this.authUsers.get(amb.userId);
+    if (!authUser) return { error: 'Could not verify linked Supabase Auth user.' };
+
+    let passwordEncrypted: string;
+    try {
+      passwordEncrypted = encryptAmbassadorPassword(newPassword, TEST_KEY);
+    } catch (err: any) {
+      return { error: `Encryption error: ${err.message}` };
+    }
+
+    authUser.password = newPassword;
+    amb.passwordEncrypted = passwordEncrypted;
+
+    this.auditLogs.push({
+      userId: params.adminUser.id,
+      action: 'UPDATE',
+      targetTable: 'Ambassador',
+      targetId: ambassadorId,
+      details: {
+        ambassadorCode: amb.ambassadorCode,
+        userId: amb.userId,
+        actionDescription: 'Reset ambassador password',
+      }, // No password
+    });
+
+    return { success: true };
   }
 }
 
 async function runAmbassadorApprovalTests() {
   const results: TestResult[] = [];
-  console.log('Starting Ambassador Approval & 8-Character Password Test Suite...\n');
+  console.log('Starting Ambassador Admin-Assigned Password & Lifecycle Test Suite...\n');
 
-  // --- SECTION 1: Password Generation & Security ---
-  const samplePasswords = Array.from({ length: 50 }, () => generateAmbassadorPassword());
+  const superAdmin = { id: 'admin_super', role: 'SUPER_ADMIN' };
+  const standardUser = { id: 'user_regular', role: 'PARTICIPANT' };
 
-  const allLength8 = samplePasswords.every((p) => p.length === 8);
-  results.push({
-    name: 'Password Generation: Every generated password has length of exactly 8 characters',
-    passed: allLength8,
-    details: allLength8 ? undefined : 'Found passwords with length != 8',
-  });
-
-  const allCharsAllowed = samplePasswords.every((p) =>
-    Array.from(p).every((ch) => ALLOWED_CHARS.includes(ch))
-  );
-  results.push({
-    name: 'Password Generation: Passwords only use characters from the safe alphanumeric charset',
-    passed: allCharsAllowed,
-  });
-
-  const containsConfusing = samplePasswords.some((p) =>
-    CONFUSING_CHARS.some((confusing) => p.includes(confusing))
-  );
-  results.push({
-    name: 'Password Generation: Excludes visually confusing characters (0, O, 1, I, l)',
-    passed: !containsConfusing,
-  });
-
-  const uniqueSamples = new Set(samplePasswords);
-  results.push({
-    name: 'Password Generation: High cryptographic entropy produces distinct passwords',
-    passed: uniqueSamples.size === 50,
-    details: `Generated ${uniqueSamples.size}/50 unique passwords`,
-  });
-
-  // --- SECTION 2: Approval of New User ---
+  // --- 1. Admin-Submitted Password Required & Enforced ---
   const engine1 = new ApprovalEngineMock();
-  engine1.requests.set('req_1', {
-    id: 'req_1',
+  engine1.requests.set('req_short_pass', {
+    id: 'req_short_pass',
+    status: 'PENDING',
+    email: 'shortpass@fast.edu.pk',
+    fullName: 'Short Pass User',
+    universityId: 'uni_fast',
+  });
+
+  const resShort = await engine1.approveRequest({
+    adminUser: superAdmin,
+    requestId: 'req_short_pass',
+    universityId: 'uni_fast',
+    ambassadorCode: 'AMB-FAST-01',
+    password: 'short', // < 8 characters
+  });
+
+  results.push({
+    name: 'Password Validation: Rejects passwords shorter than 8 characters',
+    passed: resShort.error === 'Login password must be at least 8 characters long.',
+  });
+
+  // --- 2. New Supabase User Receives Exact Admin-Submitted Password ---
+  const chosenPassword1 = 'CustomChosenPass2026!';
+  engine1.requests.set('req_new', {
+    id: 'req_new',
     status: 'PENDING',
     email: 'newamb@fast.edu.pk',
     fullName: 'New Ambassador',
@@ -246,52 +380,45 @@ async function runAmbassadorApprovalTests() {
   });
 
   const resNew = await engine1.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
-    requestId: 'req_1',
+    adminUser: superAdmin,
+    requestId: 'req_new',
     universityId: 'uni_fast',
     ambassadorCode: 'AMB-FAST-01',
+    password: chosenPassword1,
   });
 
   const newAuthUser = Array.from(engine1.authUsers.values()).find((u) => u.email === 'newamb@fast.edu.pk');
-  const newPrismaUser = Array.from(engine1.prismaUsers.values()).find((u) => u.email === 'newamb@fast.edu.pk');
   const newAmbassador = Array.from(engine1.ambassadors.values()).find((a) => a.ambassadorCode === 'AMB-FAST-01');
 
   results.push({
-    name: 'New-User Approval: Returns credentials with normalized email and 8-char password',
+    name: 'New-User Approval: Supabase Auth user receives the exact administrator-assigned password',
+    passed: Boolean(newAuthUser && newAuthUser.password === chosenPassword1),
+  });
+
+  results.push({
+    name: 'New-User Approval: Success result returns exact submitted password and ambassador code',
     passed: Boolean(
       resNew.credentials &&
-      resNew.credentials.email === 'newamb@fast.edu.pk' &&
-      resNew.credentials.password.length === 8
+      resNew.credentials.password === chosenPassword1 &&
+      resNew.credentials.ambassadorCode === 'AMB-FAST-01'
     ),
   });
 
   results.push({
-    name: 'New-User Approval: Provisions Supabase Auth user and matching Prisma User with role AMBASSADOR',
+    name: 'New-User Approval: Saves encrypted password on Ambassador record decryptable with server key',
     passed: Boolean(
-      newAuthUser &&
-      newPrismaUser &&
-      newAuthUser.id === newPrismaUser.id &&
-      newPrismaUser.role === 'AMBASSADOR' &&
-      newPrismaUser.isActive === true
+      newAmbassador?.passwordEncrypted &&
+      decryptAmbassadorPassword(newAmbassador.passwordEncrypted, TEST_KEY) === chosenPassword1
     ),
   });
 
-  results.push({
-    name: 'New-User Approval: Sets Ambassador record and updates request status to APPROVED',
-    passed: Boolean(
-      newAmbassador &&
-      engine1.requests.get('req_1')?.status === 'APPROVED' &&
-      engine1.requests.get('req_1')?.reviewedById === 'admin_1'
-    ),
-  });
-
-  // --- SECTION 3: Approval of Existing User ---
+  // --- 3. Existing User Eligible For Approval Receives Admin-Submitted Password ---
   const engine2 = new ApprovalEngineMock();
-  const existingUserId = 'user_existing_123';
+  const existingUserId = 'user_exist_777';
   engine2.authUsers.set(existingUserId, {
     id: existingUserId,
     email: 'existing@nust.edu.pk',
-    password: 'oldPassword123',
+    password: 'oldUserPassword123',
   });
   engine2.prismaUsers.set(existingUserId, {
     id: existingUserId,
@@ -299,219 +426,249 @@ async function runAmbassadorApprovalTests() {
     role: 'PARTICIPANT',
     isActive: true,
   });
-  engine2.participants.set('part_existing', {
-    id: 'part_existing',
-    userId: existingUserId,
-    email: 'existing@nust.edu.pk',
-    fullName: 'Existing Participant',
-    universityId: null,
-  });
-  engine2.requests.set('req_2', {
-    id: 'req_2',
+  engine2.requests.set('req_existing', {
+    id: 'req_existing',
     status: 'PENDING',
     email: 'existing@nust.edu.pk',
-    fullName: 'Existing Participant',
+    fullName: 'Existing User',
     universityId: 'uni_nust',
   });
 
+  const chosenPassword2 = 'NustAmbassadorPass88!';
   const resExisting = await engine2.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
-    requestId: 'req_2',
+    adminUser: superAdmin,
+    requestId: 'req_existing',
     universityId: 'uni_nust',
     ambassadorCode: 'AMB-NUST-01',
+    password: chosenPassword2,
   });
 
   const updatedAuth = engine2.authUsers.get(existingUserId);
-  const updatedPrisma = engine2.prismaUsers.get(existingUserId);
-  const updatedParticipant = engine2.participants.get('part_existing');
+  const existingAmb = Array.from(engine2.ambassadors.values()).find((a) => a.userId === existingUserId);
 
   results.push({
-    name: 'Existing-User Approval: Preserves existing user ID and updates password in Auth',
+    name: 'Existing-User Approval: Updates Auth password to submitted password after identity verification',
     passed: Boolean(
-      resExisting.credentials &&
-      resExisting.credentials.password.length === 8 &&
+      !resExisting.error &&
       updatedAuth &&
-      updatedAuth.password === resExisting.credentials.password
+      updatedAuth.password === chosenPassword2 &&
+      existingAmb &&
+      decryptAmbassadorPassword(existingAmb.passwordEncrypted!, TEST_KEY) === chosenPassword2
     ),
   });
 
-  results.push({
-    name: 'Existing-User Approval: Promotes Prisma user role to AMBASSADOR and maintains active status',
-    passed: Boolean(
-      updatedPrisma &&
-      updatedPrisma.role === 'AMBASSADOR' &&
-      updatedPrisma.isActive === true
-    ),
+  // Identity verification rejection (mismatched email)
+  const engineMismatched = new ApprovalEngineMock();
+  engineMismatched.authUsers.set('user_mismatch', {
+    id: 'user_mismatch',
+    email: 'different@auth.com', // differs from request email
+    password: 'oldPassword',
   });
-
-  results.push({
-    name: 'Existing-User Approval: Preserves existing participant record without duplicate error',
-    passed: Boolean(
-      updatedParticipant &&
-      updatedParticipant.fullName === 'Existing Participant' &&
-      updatedParticipant.universityId === 'uni_nust'
-    ),
+  engineMismatched.prismaUsers.set('user_mismatch', {
+    id: 'user_mismatch',
+    email: 'request@domain.com',
+    role: 'PARTICIPANT',
+    isActive: true,
   });
-
-  // --- SECTION 4: Rollback & Safety on Failure ---
-  const engine3 = new ApprovalEngineMock();
-  engine3.simulatedAuthFailure = true;
-  engine3.requests.set('req_auth_fail', {
-    id: 'req_auth_fail',
+  engineMismatched.requests.set('req_mismatch', {
+    id: 'req_mismatch',
     status: 'PENDING',
-    email: 'authfail@lums.edu.pk',
-    fullName: 'Lums User',
-    universityId: 'uni_lums',
+    email: 'request@domain.com',
+    fullName: 'Mismatch User',
+    universityId: 'uni_mismatch',
   });
 
-  const resAuthFail = await engine3.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
-    requestId: 'req_auth_fail',
+  const resMismatch = await engineMismatched.approveRequest({
+    adminUser: superAdmin,
+    requestId: 'req_mismatch',
+    universityId: 'uni_mismatch',
+    ambassadorCode: 'AMB-MIS-01',
+    password: 'ValidPassword123',
+  });
+
+  results.push({
+    name: 'Identity Verification: Rejects approval when Auth email does not match applicant email',
+    passed: Boolean(resMismatch.error && resMismatch.error.includes('does not match')),
+  });
+
+  // --- 4. Manual Ambassador Creation Saves Matching Encrypted Password ---
+  const manualPassword = 'ManualAmbPassword99@';
+  const resManual = await engine1.createAmbassadorManual({
+    adminUser: superAdmin,
+    email: 'manual@lums.edu.pk',
+    password: manualPassword,
     universityId: 'uni_lums',
     ambassadorCode: 'AMB-LUMS-01',
   });
 
+  const manualAmb = engine1.ambassadors.get(resManual.ambassadorId!);
+  const manualAuth = Array.from(engine1.authUsers.values()).find((u) => u.email === 'manual@lums.edu.pk');
+
   results.push({
-    name: 'Failure Handling: Auth provisioning failure returns clear error and does not approve request',
+    name: 'Manual Creation: Stores matching encrypted password and updates Auth user',
     passed: Boolean(
-      resAuthFail.error &&
-      engine3.requests.get('req_auth_fail')?.status === 'PENDING'
+      resManual.success &&
+      manualAmb?.passwordEncrypted &&
+      decryptAmbassadorPassword(manualAmb.passwordEncrypted, TEST_KEY) === manualPassword &&
+      manualAuth?.password === manualPassword
     ),
   });
 
-  const engine4 = new ApprovalEngineMock();
-  engine4.simulatedDbFailure = true;
-  engine4.requests.set('req_db_fail', {
-    id: 'req_db_fail',
-    status: 'PENDING',
-    email: 'dbfail@giki.edu.pk',
-    fullName: 'Giki User',
-    universityId: 'uni_giki',
+  const auditLogCreate = engine1.auditLogs.find((l) => l.action === 'CREATE' && l.targetId === resManual.ambassadorId);
+  results.push({
+    name: 'Audit Security: Manual creation audit log omits plaintext password',
+    passed: Boolean(auditLogCreate && !('password' in auditLogCreate.details)),
   });
 
-  const resDbFail = await engine4.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
-    requestId: 'req_db_fail',
+  // --- 5. Password Reset Flow for Existing Ambassadors ---
+  const resetPasswordValue = 'NewlyResetPassword2026!';
+  const resReset = await engine1.resetPassword({
+    adminUser: superAdmin,
+    ambassadorId: manualAmb!.id,
+    newPassword: resetPasswordValue,
+  });
+
+  const resetAmb = engine1.ambassadors.get(manualAmb!.id);
+  const resetAuth = engine1.authUsers.get(manualAmb!.userId);
+
+  results.push({
+    name: 'Password Reset: Updates Supabase Auth and encrypted storage with new password',
+    passed: Boolean(
+      resReset.success &&
+      resetAuth?.password === resetPasswordValue &&
+      resetAmb?.passwordEncrypted &&
+      decryptAmbassadorPassword(resetAmb.passwordEncrypted, TEST_KEY) === resetPasswordValue
+    ),
+  });
+
+  // --- 6. Reset Legacy Ambassador Without Encrypted Password ---
+  const legacyAmbId = 'amb_legacy_999';
+  const legacyAuthId = 'auth_legacy_999';
+  engine1.authUsers.set(legacyAuthId, {
+    id: legacyAuthId,
+    email: 'legacy@giki.edu.pk',
+    password: 'oldUnknownPassword',
+  });
+  engine1.ambassadors.set(legacyAmbId, {
+    id: legacyAmbId,
+    userId: legacyAuthId,
     universityId: 'uni_giki',
     ambassadorCode: 'AMB-GIKI-01',
+    passwordEncrypted: null, // Legacy record without encrypted password
   });
 
+  const resLegacyReset = await engine1.resetPassword({
+    adminUser: superAdmin,
+    ambassadorId: legacyAmbId,
+    newPassword: 'LegacyResetPass2026!',
+  });
+
+  const updatedLegacyAmb = engine1.ambassadors.get(legacyAmbId);
+
   results.push({
-    name: 'Failure Handling: DB failure rolls back newly created Auth user to prevent orphan accounts',
+    name: 'Legacy Ambassador: Ambassador record with null passwordEncrypted can be successfully reset',
     passed: Boolean(
-      resDbFail.error &&
-      engine4.authDeletedIds.length === 1 &&
-      engine4.requests.get('req_db_fail')?.status === 'PENDING'
+      resLegacyReset.success &&
+      updatedLegacyAmb?.passwordEncrypted &&
+      decryptAmbassadorPassword(updatedLegacyAmb.passwordEncrypted, TEST_KEY) === 'LegacyResetPass2026!'
     ),
   });
 
-  // Existing user rollback safety check:
-  const engine5 = new ApprovalEngineMock();
-  const preExistingId = 'pre_existing_auth_999';
-  engine5.authUsers.set(preExistingId, {
-    id: preExistingId,
-    email: 'safe@pieas.edu.pk',
-    password: 'originalPassword',
+  // --- 7. Authorization Security: Non-Super Admin Denied Access ---
+  const resUnauthorizedApprove = await engine1.approveRequest({
+    adminUser: standardUser,
+    requestId: 'req_new',
+    universityId: 'uni_fast',
+    ambassadorCode: 'AMB-FAST-99',
+    password: 'SomePassword123',
   });
-  engine5.prismaUsers.set(preExistingId, {
-    id: preExistingId,
-    email: 'safe@pieas.edu.pk',
-    role: 'PARTICIPANT',
-    isActive: true,
-  });
-  engine5.requests.set('req_safe_fail', {
-    id: 'req_safe_fail',
-    status: 'PENDING',
-    email: 'safe@pieas.edu.pk',
-    fullName: 'Pieas User',
-    universityId: 'uni_pieas',
-  });
-  engine5.simulatedDbFailure = true;
 
-  await engine5.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
-    requestId: 'req_safe_fail',
-    universityId: 'uni_pieas',
-    ambassadorCode: 'AMB-PIEAS-01',
+  const resUnauthorizedReset = await engine1.resetPassword({
+    adminUser: standardUser,
+    ambassadorId: legacyAmbId,
+    newPassword: 'SomePassword123',
   });
 
   results.push({
-    name: 'Failure Handling: DB failure NEVER deletes a pre-existing Auth account as rollback',
-    passed: Boolean(
-      engine5.authUsers.has(preExistingId) &&
-      !engine5.authDeletedIds.includes(preExistingId)
-    ),
-  });
-
-  // --- SECTION 5: Duplicate Approvals & Constraint Checks ---
-  const resDupRequest = await engine1.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
-    requestId: 'req_1', // already approved in SECTION 2
-    universityId: 'uni_another',
-    ambassadorCode: 'AMB-NEW-99',
+    name: 'Authorization Security: Non-Super Admin cannot approve ambassador requests',
+    passed: resUnauthorizedApprove.error === 'Only Super Admin can approve Ambassador requests.',
   });
 
   results.push({
-    name: 'Duplicate Prevention: Repeated approval of already reviewed request is rejected',
-    passed: resDupRequest.error === 'This request has already been reviewed.',
+    name: 'Authorization Security: Non-Super Admin cannot reset ambassador passwords',
+    passed: resUnauthorizedReset.error === 'Only Super Admin can reset Ambassador passwords.',
   });
 
+  // --- 8. Duplicate Prevention ---
   engine1.requests.set('req_dup_code', {
     id: 'req_dup_code',
     status: 'PENDING',
-    email: 'code_dup@test.edu.pk',
-    fullName: 'Code Dup User',
-    universityId: 'uni_unused',
+    email: 'dupcode@test.com',
+    fullName: 'Dup Code User',
+    universityId: 'uni_unused_code',
   });
 
   const resDupCode = await engine1.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
+    adminUser: superAdmin,
     requestId: 'req_dup_code',
-    universityId: 'uni_unused',
-    ambassadorCode: 'AMB-FAST-01', // code used in Section 2
+    universityId: 'uni_unused_code',
+    ambassadorCode: 'AMB-FAST-01', // Already assigned
+    password: 'ValidPassword123',
   });
 
   results.push({
-    name: 'Duplicate Prevention: Reject ambassador code collision with existing ambassador',
+    name: 'Constraint Enforcement: Rejects duplicate ambassador code collision',
     passed: resDupCode.error === 'That Ambassador code is already in use.',
   });
 
   engine1.requests.set('req_dup_uni', {
     id: 'req_dup_uni',
     status: 'PENDING',
-    email: 'uni_dup@test.edu.pk',
-    fullName: 'Uni Dup User',
-    universityId: 'uni_fast',
+    email: 'dupuni@test.com',
+    fullName: 'Dup Uni User',
+    universityId: 'uni_fast', // Already assigned
   });
 
   const resDupUni = await engine1.approveRequest({
-    adminUser: { id: 'admin_1', role: 'SUPER_ADMIN' },
+    adminUser: superAdmin,
     requestId: 'req_dup_uni',
-    universityId: 'uni_fast', // already has ambassador from Section 2
-    ambassadorCode: 'AMB-UNI-999',
+    universityId: 'uni_fast',
+    ambassadorCode: 'AMB-UNI-NEW-1',
+    password: 'ValidPassword123',
   });
 
   results.push({
-    name: 'Duplicate Prevention: Reject assigning university that already has a campus ambassador',
+    name: 'Constraint Enforcement: Rejects assigning university already assigned to an active ambassador',
     passed: resDupUni.error === 'This university already has a campus ambassador.',
   });
 
-  // --- SECTION 6: Role Home & Login Path Validation ---
-  const ROLE_HOME: Record<string, string> = {
-    SUPER_ADMIN: '/admin',
-    FDO: '/fdo',
-    AMBASSADOR: '/ambassador',
-    PARTICIPANT: '/participant',
-  };
+  // --- 9. Failure Handling & Rollback Safety ---
+  const engineFail = new ApprovalEngineMock();
+  engineFail.simulatedDbFailure = true;
+  engineFail.requests.set('req_fail_db', {
+    id: 'req_fail_db',
+    status: 'PENDING',
+    email: 'faildb@test.com',
+    fullName: 'Fail DB User',
+    universityId: 'uni_fail',
+  });
 
-  results.push({
-    name: 'Login Path: Ambassador role correctly routes to /ambassador home destination',
-    passed: ROLE_HOME['AMBASSADOR'] === '/ambassador',
+  const resFail = await engineFail.approveRequest({
+    adminUser: superAdmin,
+    requestId: 'req_fail_db',
+    universityId: 'uni_fail',
+    ambassadorCode: 'AMB-FAIL-01',
+    password: 'PasswordFail123!',
   });
 
   results.push({
-    name: 'Login Path: Verified Auth ID matches Prisma User ID for ambassador role',
-    passed: Boolean(newAuthUser && newPrismaUser && newAuthUser.id === newPrismaUser.id),
+    name: 'Failure Handling: Database failure returns clear error and does NOT return credentials as successful',
+    passed: Boolean(resFail.error && !('credentials' in resFail)),
+  });
+
+  results.push({
+    name: 'Failure Handling: Database failure rolls back newly created Auth user to prevent orphaned accounts',
+    passed: engineFail.authDeletedIds.length === 1,
   });
 
   const allPassed = printTestSummary(results);

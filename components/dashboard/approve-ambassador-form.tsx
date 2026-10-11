@@ -94,7 +94,16 @@ export function ApproveAmbassadorForm({
 
           <div>
             <span className="text-xs font-semibold uppercase text-[var(--color-text-muted)]">
-              Generated 8-Character Password
+              Ambassador Code
+            </span>
+            <p className="font-mono text-sm font-semibold text-[var(--color-text)] select-all mt-0.5">
+              {state.credentials.ambassadorCode}
+            </p>
+          </div>
+
+          <div>
+            <span className="text-xs font-semibold uppercase text-[var(--color-text-muted)]">
+              Login Password
             </span>
             <div className="mt-1 flex flex-wrap items-center gap-3">
               <span className="font-mono text-base font-bold tracking-wider px-3 py-1.5 rounded-[var(--radius-sm)] bg-[var(--color-background)] border border-[var(--color-divider)] text-[var(--color-text)] select-all">
@@ -113,7 +122,7 @@ export function ApproveAmbassadorForm({
         </div>
 
         <p className="text-xs text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
-          ⚠️ This password is shown once and cannot be recovered later. Please copy and provide it to the ambassador securely.
+          ⚠️ Please share these credentials securely with the ambassador. The password is stored encrypted and can also be viewed or reset from the Ambassadors management page by a Super Admin.
         </p>
       </div>
     );
@@ -160,6 +169,19 @@ export function ApproveAmbassadorForm({
           name="ambassadorCode"
           required
           placeholder="e.g. AMB-FAST-001"
+          className="form-input"
+        />
+      </div>
+
+      <div>
+        <label className="form-label">Login Password</label>
+        <input
+          name="password"
+          type="password"
+          required
+          minLength={8}
+          autoComplete="new-password"
+          placeholder="At least 8 characters"
           className="form-input"
         />
       </div>

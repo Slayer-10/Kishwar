@@ -1,8 +1,11 @@
 import React from 'react';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
+import { getCurrentUser } from '@/lib/auth';
+import { decryptAmbassadorPasswordSafe } from '@/lib/encryption';
 import { createAmbassadorAction } from '../actions';
 import { DeleteAmbassadorButton } from '@/components/dashboard/delete-ambassador-button';
+import { AmbassadorPasswordCell } from '@/components/dashboard/ambassador-password-cell';
 import { Button } from '@/components/ui/Button';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +15,9 @@ export default async function AdminAmbassadorsPage({
 }: {
   searchParams: { error?: string };
 }) {
+  const currentUser = await getCurrentUser();
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+
   const [ambassadors, universities] = await Promise.all([
     prisma.ambassador.findMany({
       orderBy: { assignedAt: 'desc' },
@@ -144,28 +150,43 @@ export default async function AdminAmbassadorsPage({
               <th className="px-5 py-3 font-semibold">Email</th>
               <th className="px-5 py-3 font-semibold">University</th>
               <th className="px-5 py-3 font-semibold">Code</th>
+              <th className="px-5 py-3 font-semibold">Password</th>
               <th className="px-5 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--color-divider)]">
-            {ambassadors.map((a) => (
-              <tr
-                key={a.id}
-                className="h-[56px] transition-colors hover:bg-[rgba(106,172,220,0.08)]"
-              >
-                <td className="px-5 py-3 font-semibold text-[var(--color-text)]">{a.user.email}</td>
-                <td className="px-5 py-3 text-[var(--color-text-muted)]">{a.university.name}</td>
-                <td className="px-5 py-3 font-mono font-bold text-[var(--color-secondary)]">
-                  {a.ambassadorCode}
-                </td>
-                <td className="px-5 py-3">
-                  <DeleteAmbassadorButton ambassadorId={a.id} />
-                </td>
-              </tr>
-            ))}
+            {ambassadors.map((a) => {
+              const savedPassword =
+                isSuperAdmin && a.passwordEncrypted
+                  ? decryptAmbassadorPasswordSafe(a.passwordEncrypted)
+                  : null;
+
+              return (
+                <tr
+                  key={a.id}
+                  className="h-[56px] transition-colors hover:bg-[rgba(106,172,220,0.08)]"
+                >
+                  <td className="px-5 py-3 font-semibold text-[var(--color-text)]">{a.user.email}</td>
+                  <td className="px-5 py-3 text-[var(--color-text-muted)]">{a.university.name}</td>
+                  <td className="px-5 py-3 font-mono font-bold text-[var(--color-secondary)]">
+                    {a.ambassadorCode}
+                  </td>
+                  <td className="px-5 py-3">
+                    <AmbassadorPasswordCell
+                      ambassadorId={a.id}
+                      ambassadorCode={a.ambassadorCode}
+                      savedPassword={savedPassword}
+                    />
+                  </td>
+                  <td className="px-5 py-3">
+                    <DeleteAmbassadorButton ambassadorId={a.id} />
+                  </td>
+                </tr>
+              );
+            })}
             {ambassadors.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-5 py-8 text-center text-[var(--color-text-muted)]">
+                <td colSpan={5} className="px-5 py-8 text-center text-[var(--color-text-muted)]">
                   No ambassadors yet.
                 </td>
               </tr>
