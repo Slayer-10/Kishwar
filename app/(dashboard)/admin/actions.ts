@@ -355,6 +355,19 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
               registrationEvidence: { select: { id: true } },
             },
           },
+          _count: {
+            select: {
+              auditLogs: true,
+              verifiedPayments: true,
+              verifiedCampusPayments: true,
+              ambassadorRequests: true,
+              collectiveInvoicesGenerated: true,
+              collectiveInvoicesPaidConfirmed: true,
+              uploadedRegistrationEvidence: true,
+              reviewedRegistrationEvidence: true,
+              registrationsPaymentConfirmed: true,
+            },
+          },
         },
       },
       _count: {
@@ -369,23 +382,22 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
   });
 
   if (!ambassador) {
-    throw new Error('Ambassador not found.');
+    throw new Error("Ambassador not found.");
   }
 
-  // These records have required/restricting relationships to Ambassador.
-  // Do not destroy financial history to force deletion.
+  // Financial records must not be destroyed or orphaned.
   if (
     ambassador._count.campusPayments > 0 ||
     ambassador._count.collectiveInvoices > 0
   ) {
     throw new Error(
-      'This ambassador has financial records. Preserve those records and resolve their ambassador references before deleting the assignment.'
+      "This ambassador has financial records. Resolve those records before deleting the ambassador assignment."
     );
   }
 
   const participant = ambassador.user.participant;
 
-  const hasParticipantHistory = Boolean(
+  const hasParticipantEventHistory = Boolean(
     participant &&
       (
         participant.registrations.length > 0 ||
@@ -395,66 +407,60 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
       )
   );
 
-  const hasAmbassadorHistory =
+  const hasAmbassadorEventHistory =
     ambassador._count.teams > 0 ||
-    ambassador._count.registrations > 0 ||
-    ambassador._count.campusPayments > 0 ||
-    ambassador._count.collectiveInvoices > 0;
+    ambassador._count.registrations > 0;
+
+  const userCounts = ambassador.user._count;
+
+  // User relations that require the User row to remain in the database.
+  const hasOtherUserDependencies =
+    userCounts.auditLogs > 0 ||
+    userCounts.verifiedPayments > 0 ||
+    userCounts.verifiedCampusPayments > 0 ||
+    userCounts.ambassadorRequests > 0 ||
+    userCounts.collectiveInvoicesGenerated > 0 ||
+    userCounts.collectiveInvoicesPaidConfirmed > 0 ||
+    userCounts.uploadedRegistrationEvidence > 0 ||
+    userCounts.reviewedRegistrationEvidence > 0 ||
+    userCounts.registrationsPaymentConfirmed > 0;
 
   const preserveAccount =
-    hasParticipantHistory || hasAmbassadorHistory;
+    hasParticipantEventHistory ||
+    hasAmbassadorEventHistory ||
+    hasOtherUserDependencies;
 
-  // Inspect CampusPayment, CollectiveInvoice and all other relations
-  // before deleting the Ambassador. Do not delete financial history.
-  // If a required relation prevents safe deletion, throw an actionable error.
+  const universityId = ambassador.universityId;
+  const userId = ambassador.userId;
 
-  if (preserveAccount) {
-    await prisma.$transaction(async (tx) => {
-      // Team.ambassadorId and Registration.ambassadorId are optional
-      // in the inspected schema. Detach these references while preserving
-      // the corresponding teams and registrations.
-      await tx.team.updateMany({
-        where: { ambassadorId: ambassadorId },
-        data: { ambassadorId: null },
-      });
+  await prisma.$transaction(async (tx) => {
+    // Preserve all teams and registrations; remove only the optional
+    // references to this ambassador assignment.
+    await tx.team.updateMany({
+      where: { ambassadorId },
+      data: { ambassadorId: null },
+    });
 
-      await tx.registration.updateMany({
-        where: { ambassadorId: ambassadorId },
-        data: { ambassadorId: null },
-      });
+    await tx.registration.updateMany({
+      where: { ambassadorId },
+      data: { ambassadorId: null },
+    });
 
-      // Delete the assignment, not the University or participant.
-      // Before executing this deletion, verify that no required
-      // CampusPayment or CollectiveInvoice relation blocks it.
+    if (preserveAccount) {
+      // Keep the account and its history, but revoke ambassador status.
       await tx.ambassador.delete({
         where: { id: ambassadorId },
       });
 
       await tx.user.update({
-        where: { id: ambassador.userId },
-        data: { role: 'PARTICIPANT' },
+        where: { id: userId },
+        data: { role: "PARTICIPANT" },
       });
-
-      await tx.auditLog.create({
-        data: {
-          userId: admin.id,
-          action: 'DELETE',
-          targetTable: 'Ambassador',
-          targetId: ambassadorId,
-          details: {
-            ambassadorCode: ambassador.ambassadorCode,
-            userId: ambassador.userId,
-            outcome: 'Ambassador status revoked; account and event history preserved.',
-          },
-        },
-      });
-    });
-  } else {
-    // Before deleting the user, inspect all User and Participant
-    // foreign-key dependencies in prisma/schema.prisma.
-    // Preserve audit/history records; never cascade-delete event data.
-    await prisma.$transaction(async (tx) => {
+    } else {
+      // No event history or other User dependencies were found.
       if (participant) {
+        // Requests can still refer to the participant or university.
+        // Preserve the requests while removing the participant link.
         await tx.ambassadorRequest.updateMany({
           where: { participantId: participant.id },
           data: { participantId: null },
@@ -469,45 +475,71 @@ export async function deleteAmbassadorAction(ambassadorId: string) {
         where: { id: ambassadorId },
       });
 
-      await tx.auditLog.create({
-        data: {
-          userId: admin.id,
-          action: 'DELETE',
-          targetTable: 'Ambassador',
-          targetId: ambassadorId,
-          details: {
-            ambassadorCode: ambassador.ambassadorCode,
-            userId: ambassador.userId,
-            outcome: 'Unregistered ambassador account removed.',
-          },
-        },
-      });
-
-      // Delete only after confirming no remaining foreign-key
-      // dependency prevents User deletion.
       await tx.user.delete({
-        where: { id: ambassador.userId },
+        where: { id: userId },
       });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        userId: admin.id,
+        action: "DELETE",
+        targetTable: "Ambassador",
+        targetId: ambassadorId,
+        details: {
+          ambassadorCode: ambassador.ambassadorCode,
+          userId,
+          universityId,
+          outcome: preserveAccount
+            ? "Ambassador assignment removed; account and history preserved."
+            : "Ambassador, participant (if present), and database user removed.",
+        },
+      },
     });
 
-    // Prisma and Supabase Auth cannot participate in the same transaction.
-    // Delete the Auth user only after the Prisma transaction succeeds.
+    // Delete the university only when it has no remaining references.
+    // This is checked after removing the ambassador assignment.
+    const [
+      remainingAmbassadors,
+      remainingParticipants,
+      remainingTeams,
+      remainingRequests,
+    ] = await Promise.all([
+      tx.ambassador.count({ where: { universityId } }),
+      tx.participant.count({ where: { universityId } }),
+      tx.team.count({ where: { universityId } }),
+      tx.ambassadorRequest.count({ where: { universityId } }),
+    ]);
+
+    if (
+      remainingAmbassadors === 0 &&
+      remainingParticipants === 0 &&
+      remainingTeams === 0 &&
+      remainingRequests === 0
+    ) {
+      await tx.university.delete({
+        where: { id: universityId },
+      });
+    }
+  });
+
+  // Supabase Auth is external to the Prisma transaction.
+  // A failure here must be reported; it cannot roll back the database.
+  if (!preserveAccount) {
     const supabaseAdmin = createSupabaseAdminClient();
 
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(
-      ambassador.userId
-    );
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (error) {
       throw new Error(
-        'Prisma records were deleted, but Supabase Auth account cleanup failed. Manual cleanup or a retry is required: ' +
-          error.message
+        `Database deletion succeeded, but Supabase Auth deletion failed for user ${userId}: ${error.message}. Retry Auth cleanup for this user.`
       );
     }
   }
 
-  revalidatePath('/admin/ambassadors');
-  revalidatePath('/admin/ambassador-requests');
+  revalidatePath("/admin/ambassadors");
+  revalidatePath("/admin/ambassador-requests");
+  revalidatePath("/admin/universities");
 }
 
 function revalidatePaymentPages() {

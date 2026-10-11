@@ -98,14 +98,19 @@ class DeletionEngineMock {
         )
     );
 
-    const hasAmbassadorHistory =
+    const hasAmbassadorEventHistory =
       ambassador.teamsCount > 0 ||
-      ambassador.registrationsCount > 0 ||
-      ambassador.campusPaymentsCount > 0 ||
-      ambassador.collectiveInvoicesCount > 0;
+      ambassador.registrationsCount > 0;
+
+    const user = this.prismaUsers.get(ambassador.userId);
+    const hasOtherUserDependencies = Boolean(
+      user && (user as any).hasOtherDependencies
+    );
 
     const preserveAccount =
-      hasParticipantHistory || hasAmbassadorHistory;
+      hasParticipantHistory ||
+      hasAmbassadorEventHistory ||
+      hasOtherUserDependencies;
 
     if (preserveAccount) {
       // Retained account
@@ -123,7 +128,6 @@ class DeletionEngineMock {
 
       this.ambassadors.delete(ambassadorId);
 
-      const user = this.prismaUsers.get(ambassador.userId);
       if (user) {
         user.role = 'PARTICIPANT';
       }
@@ -136,7 +140,7 @@ class DeletionEngineMock {
         details: {
           ambassadorCode: ambassador.ambassadorCode,
           userId: ambassador.userId,
-          outcome: 'Ambassador status revoked; account and event history preserved.',
+          outcome: 'Ambassador assignment removed; account and history preserved.',
         },
       });
     } else {
@@ -160,7 +164,7 @@ class DeletionEngineMock {
         details: {
           ambassadorCode: ambassador.ambassadorCode,
           userId: ambassador.userId,
-          outcome: 'Unregistered ambassador account removed.',
+          outcome: 'Ambassador, participant (if present), and database user removed.',
         },
       });
 
@@ -168,8 +172,7 @@ class DeletionEngineMock {
 
       if (this.simulateAuthDeletionError) {
         throw new Error(
-          'Prisma records were deleted, but Supabase Auth account cleanup failed. Manual cleanup or a retry is required: ' +
-            this.simulateAuthDeletionError
+          `Database deletion succeeded, but Supabase Auth deletion failed for user ${ambassador.userId}: ${this.simulateAuthDeletionError}. Retry Auth cleanup for this user.`
         );
       }
 
@@ -177,6 +180,8 @@ class DeletionEngineMock {
     }
 
     this.revalidatedPaths.push('/admin/ambassadors');
+    this.revalidatedPaths.push('/admin/ambassador-requests');
+    this.revalidatedPaths.push('/admin/universities');
   }
 }
 
@@ -253,7 +258,7 @@ async function runAmbassadorDeletionTests() {
       engine1.auditLogs.some(
         (log) =>
           log.targetId === ambId1 &&
-          log.details?.outcome === 'Ambassador status revoked; account and event history preserved.'
+          log.details?.outcome === 'Ambassador assignment removed; account and history preserved.'
       )
     ),
   });
@@ -315,7 +320,7 @@ async function runAmbassadorDeletionTests() {
       engine2.auditLogs.some(
         (log) =>
           log.targetId === ambId2 &&
-          log.details?.outcome === 'Unregistered ambassador account removed.'
+          log.details?.outcome === 'Ambassador, participant (if present), and database user removed.'
       )
     ),
   });
@@ -379,7 +384,7 @@ async function runAmbassadorDeletionTests() {
     name: 'Partial-Cleanup Reporting: Auth failure throws clear error detailing DB deleted but Auth pending',
     passed: Boolean(
       authFailError &&
-      authFailError.includes('Prisma records were deleted, but Supabase Auth account cleanup failed') &&
+      authFailError.includes('Database deletion succeeded, but Supabase Auth deletion failed for user') &&
       !engine4.prismaUsers.has(failUserId) && // DB was deleted
       engine4.authUsers.has(failUserId) // Auth still present
     ),
@@ -425,10 +430,54 @@ async function runAmbassadorDeletionTests() {
     ),
   });
 
-  // --- TEST 6: Revalidation ---
+  // --- TEST 6: User Dependencies (auditLogs, verifiedPayments, etc.) ---
+  const engine6 = new DeletionEngineMock();
+  const depUserId = 'user_dep_6';
+  const ambId6 = 'amb_6';
+
+  engine6.authUsers.set(depUserId, { id: depUserId, email: 'dep@test.com' });
+  engine6.prismaUsers.set(depUserId, {
+    id: depUserId,
+    email: 'dep@test.com',
+    role: 'AMBASSADOR',
+    hasOtherDependencies: true,
+  } as any);
+  engine6.participants.set('part_6', {
+    id: 'part_6',
+    userId: depUserId,
+    registrations: [],
+    captainOfTeams: [],
+    teamMemberships: [],
+    registrationEvidence: [],
+  });
+  engine6.ambassadors.set(ambId6, {
+    id: ambId6,
+    userId: depUserId,
+    ambassadorCode: 'AMB-TEST-06',
+    teamsCount: 0,
+    registrationsCount: 0,
+    campusPaymentsCount: 0,
+    collectiveInvoicesCount: 0,
+  });
+
+  await engine6.deleteAmbassador(ambId6, 'admin_super');
+
   results.push({
-    name: 'Revalidation: Revalidates /admin/ambassadors upon successful operation',
-    passed: engine1.revalidatedPaths.includes('/admin/ambassadors'),
+    name: 'User Dependencies: User account is preserved as PARTICIPANT when auditLogs or payment reviews exist',
+    passed: Boolean(
+      !engine6.ambassadors.has(ambId6) &&
+      engine6.prismaUsers.has(depUserId) &&
+      engine6.prismaUsers.get(depUserId)?.role === 'PARTICIPANT'
+    ),
+  });
+
+  // --- TEST 7: Revalidation ---
+  results.push({
+    name: 'Revalidation: Revalidates /admin/ambassadors, /admin/ambassador-requests, and /admin/universities',
+    passed:
+      engine1.revalidatedPaths.includes('/admin/ambassadors') &&
+      engine1.revalidatedPaths.includes('/admin/ambassador-requests') &&
+      engine1.revalidatedPaths.includes('/admin/universities'),
   });
 
   const allPassed = printTestSummary(results);
