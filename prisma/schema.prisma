@@ -132,8 +132,9 @@ model Ambassador {
   user           User       @relation(fields: [userId], references: [id])
   universityId   String
   university     University @relation(fields: [universityId], references: [id])
-  ambassadorCode String     @unique
-  assignedAt     DateTime   @default(now())
+  ambassadorCode    String     @unique
+  passwordEncrypted String?
+  assignedAt        DateTime   @default(now())
 
   teams              Team[]
   registrations      Registration[]
