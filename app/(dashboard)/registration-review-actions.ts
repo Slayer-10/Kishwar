@@ -164,7 +164,7 @@ export async function reviewRegistrationAction(
 
     // Serialize approvals for the same event so two reviewers
     // cannot reserve the final seat simultaneously.
-    await tx.$queryRaw`
+    await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(
         hashtextextended(${registration.eventId}, 0)
       )

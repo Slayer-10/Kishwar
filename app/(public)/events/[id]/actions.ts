@@ -17,10 +17,8 @@ const ALLOWED_TYPES: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-export type PublicRegistrationState = {
-  error?: string;
-  success?: string;
-};
+import { type PublicRegistrationState } from './types';
+export type { PublicRegistrationState };
 
 class PublicRegistrationError extends Error {
   constructor(message: string) {
@@ -351,7 +349,7 @@ export async function submitPublicIndividualRegistrationAction(
 
     await prisma.$transaction(async (tx) => {
       // Recheck the event inside the transaction while holding per-event lock.
-      await tx.$queryRaw`
+      await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
       `;
 
@@ -401,7 +399,10 @@ export async function submitPublicIndividualRegistrationAction(
             {
               participant: {
                 is: {
-                  normalizedCnic,
+                  OR: [
+                    { normalizedCnic },
+                    { email },
+                  ],
                 },
               },
             },
@@ -411,7 +412,12 @@ export async function submitPublicIndividualRegistrationAction(
                   members: {
                     some: {
                       participant: {
-                        is: { normalizedCnic },
+                        is: {
+                          OR: [
+                            { normalizedCnic },
+                            { email },
+                          ],
+                        },
                       },
                     },
                   },
@@ -425,7 +431,7 @@ export async function submitPublicIndividualRegistrationAction(
 
       if (existingRegistration) {
         throw new PublicRegistrationError(
-          'This CNIC/B-Form is already registered for this event.'
+          'A registration with this CNIC/B-Form or email is already submitted for this event.'
         );
       }
 
@@ -540,20 +546,28 @@ export async function submitPublicIndividualRegistrationAction(
       });
     });
 
-    revalidatePath(`/events/${eventId}`);
-    revalidatePath('/admin');
-    revalidatePath('/ambassador');
+    try {
+      revalidatePath(`/events/${eventId}`);
+      revalidatePath('/admin');
+      revalidatePath('/ambassador');
+    } catch {
+      // Revalidation safe fallback outside Next request context
+    }
 
     // Trigger notification after database transaction succeeds
-    await dispatchNotification({
-      event: 'registration_submitted',
-      recipientName: fullName,
-      recipientEmail: email,
-      recipientPhone: phone,
-      subject: `Registration Submitted - ${event.name}`,
-      message: `Dear ${fullName}, your registration for ${event.name} has been submitted successfully and is currently under review.`,
-      idempotencyKey: `sub_${email}_${eventId}`,
-    });
+    try {
+      await dispatchNotification({
+        event: 'registration_submitted',
+        recipientName: fullName,
+        recipientEmail: email,
+        recipientPhone: phone,
+        subject: `Registration Submitted - ${event.name}`,
+        message: `Dear ${fullName}, your registration for ${event.name} has been submitted successfully and is currently under review.`,
+        idempotencyKey: `sub_${email}_${eventId}`,
+      });
+    } catch {
+      // Notification dispatch failure should not interrupt completed registration
+    }
 
     return {
       success: initialAmbassador
@@ -569,8 +583,8 @@ export async function submitPublicIndividualRegistrationAction(
 
     // Do not expose Prisma errors, private storage paths, or participant data.
     console.error(
-      '[public-registration] Submission failed',
-      error instanceof Error ? error.name : 'UnknownError'
+      '[public-registration] Unexpected submission error:',
+      error instanceof Error ? error.message : 'UnknownError'
     );
 
     return {

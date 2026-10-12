@@ -1,12 +1,10 @@
 'use client';
-
-import { useState } from 'react';
+ 
+import React, { useState } from 'react';
 import { useFormState, useFormStatus } from 'react-dom';
 import { Button } from '@/components/ui/Button';
-import {
-  submitPublicIndividualRegistrationAction,
-  type PublicRegistrationState,
-} from '@/app/(public)/events/[id]/actions';
+import { submitPublicIndividualRegistrationAction } from '@/app/(public)/events/[id]/actions';
+import type { PublicRegistrationState } from '@/app/(public)/events/[id]/types';
 
 type UniversityOption = {
   id: string;
@@ -19,12 +17,18 @@ const initialState: PublicRegistrationState = {};
 export function PublicIndividualRegistrationForm({
   eventId,
   universities,
+  action: formActionProp = submitPublicIndividualRegistrationAction,
 }: {
   eventId: string;
   universities: UniversityOption[];
+  action?: (
+    state: PublicRegistrationState,
+    formData: FormData
+  ) => Promise<PublicRegistrationState>;
 }) {
+
   const [state, action] = useFormState(
-    submitPublicIndividualRegistrationAction,
+    formActionProp,
     initialState
   );
 
@@ -193,25 +197,24 @@ export function PublicIndividualRegistrationForm({
         </p>
       </div>
 
-      <div>
-        <label className="form-label" htmlFor={`payment-proof-${eventId}`}>
-          Payment screenshot {needsPaymentProof ? '(required)' : '(if applicable)'}
-        </label>
-        <input
-          id={`payment-proof-${eventId}`}
-          name="paymentProof"
-          type="file"
-          accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
-          required={needsPaymentProof}
-          className="form-input"
-        />
-        <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-          {needsPaymentProof
-            ? 'Your university has no active Ambassador. Upload payment evidence for Admin review.'
-            : 'If an active Ambassador is available, payment evidence is not required at this stage.'}
-          {' '}Maximum 8 MB.
-        </p>
-      </div>
+      {needsPaymentProof && (
+        <div>
+          <label className="form-label" htmlFor={`payment-proof-${eventId}`}>
+            Payment screenshot (required)
+          </label>
+          <input
+            id={`payment-proof-${eventId}`}
+            name="paymentProof"
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+            required
+            className="form-input"
+          />
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Your university has no active Ambassador. Upload payment evidence for Admin review. Maximum 8 MB.
+          </p>
+        </div>
+      )}
 
       <div>
         <label className="form-label" htmlFor={`accommodation-${eventId}`}>

@@ -11,6 +11,7 @@ import { AmbassadorRegisterForm } from '@/components/public/ambassador-register-
 import { AmbassadorTeamRegisterForm } from '@/components/public/ambassador-team-register-form';
 import { AmbassadorSelfRegisterForm } from '@/components/public/ambassador-self-register-form';
 import { PublicIndividualRegistrationForm } from '@/components/public/public-individual-registration-form';
+import { submitPublicIndividualRegistrationAction } from './actions';
 
 export default async function PublicEventDetailPage({
   params,
@@ -290,6 +291,7 @@ export default async function PublicEventDetailPage({
                         <PublicIndividualRegistrationForm
                           eventId={event.id}
                           universities={publicUniversityOptions}
+                          action={submitPublicIndividualRegistrationAction}
                         />
                       )}
 

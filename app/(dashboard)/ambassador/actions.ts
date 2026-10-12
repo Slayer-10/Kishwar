@@ -261,7 +261,7 @@ export async function registerParticipantAction(
 
     // Transaction with advisory lock
     await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`
+      await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
       `;
 
@@ -518,7 +518,7 @@ export async function registerTeamAction(
 
     // Transaction with lock & capacity check
     await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`
+      await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
       `;
 
@@ -690,7 +690,7 @@ export async function registerSelfAction(
     );
 
     await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`
+      await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))
       `;
 
