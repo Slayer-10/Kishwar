@@ -18,7 +18,7 @@ export default async function CollectiveInvoicesPage() {
     redirect('/login');
   }
 
-  const [tiers, invoices] = await Promise.all([
+  const [tiers, invoices, ambassadors, events] = await Promise.all([
     prisma.discountTier.findMany({
       orderBy: { minimumRegistrations: 'asc' },
       select: {
@@ -50,6 +50,12 @@ export default async function CollectiveInvoicesPage() {
           },
         },
         scopeKey: true,
+        Event: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         ambassador: {
           select: {
             ambassadorCode: true,
@@ -58,6 +64,30 @@ export default async function CollectiveInvoicesPage() {
           },
         },
         _count: { select: { items: true } },
+      },
+    }),
+
+    prisma.ambassador.findMany({
+      where: {
+        user: { isActive: true },
+      },
+      orderBy: {
+        university: { name: 'asc' },
+      },
+      select: {
+        id: true,
+        ambassadorCode: true,
+        user: { select: { email: true } },
+        university: { select: { name: true } },
+      },
+    }),
+
+    prisma.event.findMany({
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        status: true,
       },
     }),
   ]);
@@ -192,20 +222,102 @@ export default async function CollectiveInvoicesPage() {
         )}
       </section>
 
-      <section className="rounded-xl border border-amber-300 p-5 bg-amber-50/50 shadow-sm">
-        <h2 className="text-lg font-semibold text-amber-900">Generate Final Invoices</h2>
+      <section className="rounded-xl border border-amber-300 bg-amber-50/50 p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-amber-900">
+          Generate Collective Invoices
+        </h2>
+
         <p className="my-3 text-sm text-amber-800">
-          This manually creates one invoice per Ambassador for eligible
-          registrations not previously invoiced. Review the eligible
-          registrations and discount tiers before proceeding.
+          Select the billing scope. Only approved registrations that have not
+          already been invoiced are included. Pending and rejected registrations
+          are excluded.
         </p>
 
-        <form action={generateCollectiveInvoicesAction}>
-          <button
-            className="rounded bg-amber-600 px-4 py-2 font-medium text-white hover:bg-amber-700 transition-colors shadow-sm text-sm"
-          >
-            Generate Collective Invoices
-          </button>
+        <form
+          action={generateCollectiveInvoicesAction}
+          className="grid gap-4 sm:grid-cols-2"
+        >
+          <div>
+            <label
+              htmlFor="ambassadorId"
+              className="mb-1 block text-sm font-semibold text-gray-700"
+            >
+              Ambassador
+            </label>
+
+            <select
+              id="ambassadorId"
+              name="ambassadorId"
+              defaultValue="ALL"
+              required
+              className="w-full rounded-lg border border-gray-300 bg-white p-3 text-sm"
+            >
+              <option value="ALL">All active Ambassadors</option>
+
+              {ambassadors.map((ambassador) => (
+                <option key={ambassador.id} value={ambassador.id}>
+                  {ambassador.university.name} — {ambassador.ambassadorCode}
+                  {' — '}
+                  {ambassador.user.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="eventId"
+              className="mb-1 block text-sm font-semibold text-gray-700"
+            >
+              Event
+            </label>
+
+            <select
+              id="eventId"
+              name="eventId"
+              defaultValue="ALL"
+              required
+              className="w-full rounded-lg border border-gray-300 bg-white p-3 text-sm"
+            >
+              <option value="ALL">All events — combined billing batch</option>
+
+              {events.map((event) => (
+                <option key={event.id} value={event.id}>
+                  {event.name} ({event.status})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="sm:col-span-2 rounded-lg border border-amber-200 bg-white p-3 text-sm text-gray-700">
+            <p className="font-semibold">Before generating</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>Each Ambassador receives a separate invoice.</li>
+              <li>
+                Choosing one event includes only eligible registrations for
+                that event.
+              </li>
+              <li>
+                Choosing all events creates a combined invoice per Ambassador.
+              </li>
+              <li>
+                Each registration can be included in only one collective invoice.
+              </li>
+              <li>
+                Active discount tiers are applied using the number of eligible
+                registrations in each Ambassador's invoice.
+              </li>
+            </ul>
+          </div>
+
+          <div className="sm:col-span-2">
+            <button
+              type="submit"
+              className="rounded-lg bg-amber-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-700"
+            >
+              Generate Invoices for Selected Scope
+            </button>
+          </div>
         </form>
       </section>
 
@@ -225,6 +337,8 @@ export default async function CollectiveInvoicesPage() {
                     <span className="font-bold text-indigo-700">{invoice.invoiceNumber}</span>
                     {' — '}
                     {invoice.ambassador.university.name}
+                    {' — '}
+                    {invoice.Event?.name ?? 'All events'}
                   </span>
                   <div className="flex items-center space-x-3 text-xs">
                     <span

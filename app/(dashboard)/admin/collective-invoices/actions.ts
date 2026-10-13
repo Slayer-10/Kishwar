@@ -107,17 +107,47 @@ export async function updateDiscountTierAction(formData: FormData) {
   }
 }
 
-export async function generateCollectiveInvoicesAction(_formData?: FormData): Promise<void> {
+export async function generateCollectiveInvoicesAction(
+  formData: FormData
+): Promise<void> {
   const admin = await requireSuperAdmin();
 
-  /*
-   * Each manual run is a separate billing batch.
-   * All eligible registrations across events are grouped by Ambassador.
-   * Registrations already attached to an invoice are excluded.
-   *
-   * Do not generate invoices for pending or rejected requests.
-   * Do not create individual invoices for these registrations.
-   */
+  const selectedAmbassadorId = String(
+    formData.get('ambassadorId') ?? 'ALL'
+  ).trim();
+
+  const selectedEventId = String(
+    formData.get('eventId') ?? 'ALL'
+  ).trim();
+
+  if (!selectedAmbassadorId || !selectedEventId) {
+    throw new Error('Select a valid billing scope.');
+  }
+
+  if (selectedAmbassadorId !== 'ALL') {
+    const ambassador = await prisma.ambassador.findFirst({
+      where: {
+        id: selectedAmbassadorId,
+        user: { isActive: true },
+      },
+      select: { id: true },
+    });
+
+    if (!ambassador) {
+      throw new Error('The selected Ambassador is not active or does not exist.');
+    }
+  }
+
+  if (selectedEventId !== 'ALL') {
+    const event = await prisma.event.findUnique({
+      where: { id: selectedEventId },
+      select: { id: true },
+    });
+
+    if (!event) {
+      throw new Error('The selected event does not exist.');
+    }
+  }
 
   const batchScope = `BATCH-${randomUUID()}`;
 
@@ -135,7 +165,13 @@ export async function generateCollectiveInvoicesAction(_formData?: FormData): Pr
 
     prisma.registration.findMany({
       where: {
-        ambassadorId: { not: null },
+        ambassadorId:
+          selectedAmbassadorId === 'ALL'
+            ? { not: null }
+            : selectedAmbassadorId,
+        ...(selectedEventId !== 'ALL'
+          ? { eventId: selectedEventId }
+          : {}),
         reviewStatus: 'APPROVED',
         status: { not: 'REJECTED' },
         collectiveInvoiceItem: null,
@@ -144,12 +180,6 @@ export async function generateCollectiveInvoicesAction(_formData?: FormData): Pr
       select: {
         id: true,
         ambassadorId: true,
-        accommodationFee: true,
-        event: {
-          select: {
-            registrationFee: true,
-          },
-        },
       },
       orderBy: { createdAt: 'asc' },
     }),
@@ -160,157 +190,176 @@ export async function generateCollectiveInvoicesAction(_formData?: FormData): Pr
     return;
   }
 
-  const grouped = new Map<string, typeof eligible>();
+  const grouped = new Map<string, string[]>();
 
   for (const registration of eligible) {
     if (!registration.ambassadorId) continue;
 
-    const group = grouped.get(registration.ambassadorId) ?? [];
-    group.push(registration);
-    grouped.set(registration.ambassadorId, group);
+    const ids = grouped.get(registration.ambassadorId) ?? [];
+    ids.push(registration.id);
+    grouped.set(registration.ambassadorId, ids);
   }
 
-  /*
-   * Use a transaction per Ambassador. The unique registrationId on
-   * CollectiveInvoiceItem prevents duplicate billing across batches.
-   * If a competing request invoices a registration first, its transaction
-   * must fail rather than charge that registration twice.
-   */
-  const entries = Array.from(grouped.entries());
+  for (const [ambassadorId, registrationIds] of Array.from(grouped.entries())) {
+    try {
+      const createdInvoice = await prisma.$transaction(async (tx) => {
+        const fresh = await tx.registration.findMany({
+          where: {
+            id: { in: registrationIds },
+            ambassadorId,
+            ...(selectedEventId !== 'ALL'
+              ? { eventId: selectedEventId }
+              : {}),
+            reviewStatus: 'APPROVED',
+            status: { not: 'REJECTED' },
+            collectiveInvoiceItem: null,
+            invoice: null,
+          },
+          select: {
+            id: true,
+            eventId: true,
+            event: { select: { registrationFee: true } },
+            accommodationFee: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        });
 
-  for (const [ambassadorId, registrations] of entries) {
-    const createdInvoice = await prisma.$transaction(async (tx) => {
-      const fresh = await tx.registration.findMany({
-        where: {
-          id: { in: registrations.map((registration) => registration.id) },
-          ambassadorId,
-          reviewStatus: 'APPROVED',
-          status: { not: 'REJECTED' },
-          collectiveInvoiceItem: null,
-          invoice: null,
-        },
-        select: {
-          id: true,
-          event: { select: { registrationFee: true } },
-          accommodationFee: true,
-        },
-      });
+        if (fresh.length === 0) return null;
 
-      if (fresh.length === 0) return;
-
-      /*
-       * Recalculate using the registrations still eligible inside the
-       * transaction; do not trust the earlier preview/query for billing.
-       */
-      const freshSubtotal = fresh.reduce(
-        (sum, registration) =>
-          sum +
-          Number(registration.event.registrationFee) +
-          Number(registration.accommodationFee ?? 0),
-        0
-      );
-
-      // Only the highest qualifying active tier applies
-      const freshTier = [...tiers]
-        .reverse()
-        .find((item) => fresh.length >= item.minimumRegistrations);
-
-      const freshDiscountPercent = Number(freshTier?.discountPercent ?? 0);
-      const freshDiscountAmount = Number(
-        ((freshSubtotal * freshDiscountPercent) / 100).toFixed(2)
-      );
-      const freshTotal = Number(
-        (freshSubtotal - freshDiscountAmount).toFixed(2)
-      );
-
-      const invoice = await tx.collectiveInvoice.create({
-        data: {
-          ambassadorId,
-          scopeKey: batchScope,
-          invoiceNumber: `KSH-COL-${randomUUID()
-            .slice(0, 12)
-            .toUpperCase()}`,
-          status: 'PENDING',
-          subtotal: freshSubtotal,
-          discountPercent: freshDiscountPercent,
-          discountAmount: freshDiscountAmount,
-          totalAmount: freshTotal,
-          generatedById: admin.id,
-          eventId: null,
-        },
-      });
-
-      // Calculate line items with deterministic 1-paisa rounding allocation
-      let itemsSum = 0;
-      const rawItems = fresh.map((registration) => {
-        const baseAmount =
-          Number(registration.event.registrationFee) +
-          Number(registration.accommodationFee ?? 0);
-
-        const itemDiscount = Number(
-          ((baseAmount * freshDiscountPercent) / 100).toFixed(2)
+        const subtotal = fresh.reduce(
+          (sum, registration) =>
+            sum +
+            Number(registration.event.registrationFee) +
+            Number(registration.accommodationFee ?? 0),
+          0
         );
-        const finalAmount = Number((baseAmount - itemDiscount).toFixed(2));
-        itemsSum += finalAmount;
+
+        const tier = [...tiers]
+          .reverse()
+          .find((item) => fresh.length >= item.minimumRegistrations);
+
+        const discountPercent = Number(tier?.discountPercent ?? 0);
+        const discountAmount = Number(
+          ((subtotal * discountPercent) / 100).toFixed(2)
+        );
+        const totalAmount = Number(
+          (subtotal - discountAmount).toFixed(2)
+        );
+
+        const invoice = await tx.collectiveInvoice.create({
+          data: {
+            ambassadorId,
+            scopeKey: batchScope,
+            invoiceNumber: `KSH-COL-${randomUUID()
+              .slice(0, 12)
+              .toUpperCase()}`,
+            status: 'PENDING',
+            subtotal,
+            discountPercent,
+            discountAmount,
+            totalAmount,
+            generatedById: admin.id,
+            eventId: selectedEventId === 'ALL' ? null : selectedEventId,
+          },
+        });
+
+        let itemTotal = 0;
+
+        const lineItems = fresh.map((registration) => {
+          const baseAmount =
+            Number(registration.event.registrationFee) +
+            Number(registration.accommodationFee ?? 0);
+
+          const itemDiscount = Number(
+            ((baseAmount * discountPercent) / 100).toFixed(2)
+          );
+
+          const finalAmount = Number(
+            (baseAmount - itemDiscount).toFixed(2)
+          );
+
+          itemTotal += finalAmount;
+
+          return {
+            registrationId: registration.id,
+            baseAmount,
+            discountAmount: itemDiscount,
+            finalAmount,
+          };
+        });
+
+        const roundingDifference = Number(
+          (totalAmount - itemTotal).toFixed(2)
+        );
+
+        if (roundingDifference !== 0 && lineItems.length > 0) {
+          const lastItem = lineItems[lineItems.length - 1];
+          lastItem.finalAmount = Number(
+            (lastItem.finalAmount + roundingDifference).toFixed(2)
+          );
+        }
+
+        await tx.collectiveInvoiceItem.createMany({
+          data: lineItems.map((item) => ({
+            collectiveInvoiceId: invoice.id,
+            registrationId: item.registrationId,
+            baseAmount: item.baseAmount,
+            discountAmount: item.discountAmount,
+            finalAmount: item.finalAmount,
+          })),
+        });
 
         return {
-          registrationId: registration.id,
-          baseAmount,
-          discountAmount: itemDiscount,
-          finalAmount,
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          totalAmount,
         };
       });
 
-      // Adjust rounding discrepancy on the last item if sum(item.finalAmount) != freshTotal
-      const diff = Number((freshTotal - itemsSum).toFixed(2));
-      if (diff !== 0 && rawItems.length > 0) {
-        const last = rawItems[rawItems.length - 1];
-        last.finalAmount = Number((last.finalAmount + diff).toFixed(2));
-      }
-
-      await tx.collectiveInvoiceItem.createMany({
-        data: rawItems.map((item) => ({
-          collectiveInvoiceId: invoice.id,
-          registrationId: item.registrationId,
-          baseAmount: item.baseAmount,
-          discountAmount: item.discountAmount,
-          finalAmount: item.finalAmount,
-        })),
-      });
-
-      return {
-        id: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        totalAmount: freshTotal,
-        ambassadorId,
-      };
-    });
-
-    if (createdInvoice) {
-      try {
-        const ambassadorUser = await prisma.ambassador.findUnique({
-          where: { id: ambassadorId },
-          select: { user: { select: { email: true } } },
-        });
-
-        if (ambassadorUser?.user.email) {
-          await dispatchNotification({
-            event: 'invoice_generated',
-            recipientName: ambassadorUser.user.email,
-            recipientEmail: ambassadorUser.user.email,
-            subject: `Collective Invoice Generated - ${createdInvoice.invoiceNumber}`,
-            message: `A collective invoice (${createdInvoice.invoiceNumber}) for PKR ${createdInvoice.totalAmount.toFixed(2)} has been generated for your university registrations.`,
-            idempotencyKey: `inv_${createdInvoice.id}`,
+      if (createdInvoice) {
+        try {
+          const ambassador = await prisma.ambassador.findUnique({
+            where: { id: ambassadorId },
+            select: { user: { select: { email: true } } },
           });
+
+          const email = ambassador?.user.email;
+
+          if (email) {
+            await dispatchNotification({
+              event: 'invoice_generated',
+              recipientName: email,
+              recipientEmail: email,
+              subject: `Collective Invoice Generated - ${createdInvoice.invoiceNumber}`,
+              message:
+                `A collective invoice (${createdInvoice.invoiceNumber}) ` +
+                `for PKR ${createdInvoice.totalAmount.toFixed(2)} has been generated.`,
+              idempotencyKey: `inv_${createdInvoice.id}`,
+            });
+          }
+        } catch (notificationError) {
+          console.error(
+            '[generateCollectiveInvoicesAction] Notification error:',
+            notificationError
+          );
         }
-      } catch (err) {
-        console.error('[generateCollectiveInvoicesAction] Notification error:', err);
       }
+    } catch (error: unknown) {
+      const prismaError = error as { code?: string };
+
+      if (prismaError?.code === 'P2002') {
+        // A competing billing request already claimed at least one registration.
+        // This transaction rolls back, so no duplicate invoice items are created.
+        continue;
+      }
+
+      throw error;
     }
   }
 
   revalidatePath('/admin/collective-invoices');
   revalidatePath('/admin/registration-requests');
+  revalidatePath('/admin/registrations');
   revalidatePath('/ambassador');
 }
 
@@ -470,7 +519,9 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
 
 export const confirmCollectiveInvoicePayment = confirmCollectiveInvoicePaymentAction;
 
-export async function getCollectiveInvoiceItemsAction(collectiveInvoiceId: string) {
+export async function getCollectiveInvoiceItemsAction(
+  collectiveInvoiceId: string
+) {
   await requireSuperAdmin();
 
   if (!collectiveInvoiceId) {
@@ -490,8 +541,17 @@ export async function getCollectiveInvoiceItemsAction(collectiveInvoiceId: strin
           status: true,
           reviewStatus: true,
           event: { select: { name: true } },
-          participant: { select: { fullName: true, email: true, cnic: true } },
+          participant: {
+            select: { fullName: true, email: true, cnic: true },
+          },
           team: { select: { name: true } },
+          ambassador: {
+            select: {
+              ambassadorCode: true,
+              user: { select: { email: true } },
+              university: { select: { name: true } },
+            },
+          },
         },
       },
     },
@@ -507,6 +567,11 @@ export async function getCollectiveInvoiceItemsAction(collectiveInvoiceId: strin
       item.registration.team?.name ||
       'N/A',
     participantEmail: item.registration.participant?.email || 'N/A',
+    participantCnic: item.registration.participant?.cnic || 'N/A',
+    ambassadorCode: item.registration.ambassador?.ambassadorCode || 'N/A',
+    ambassadorEmail: item.registration.ambassador?.user.email || 'N/A',
+    ambassadorUniversity:
+      item.registration.ambassador?.university.name || 'No Ambassador',
     reviewStatus: item.registration.reviewStatus,
     paymentStatus: item.registration.status,
     baseAmount: Number(item.baseAmount),
