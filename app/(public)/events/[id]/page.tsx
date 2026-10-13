@@ -11,6 +11,7 @@ import { AmbassadorRegisterForm } from '@/components/public/ambassador-register-
 import { AmbassadorTeamRegisterForm } from '@/components/public/ambassador-team-register-form';
 import { AmbassadorSelfRegisterForm } from '@/components/public/ambassador-self-register-form';
 import { PublicIndividualRegistrationForm } from '@/components/public/public-individual-registration-form';
+import { PublicTeamRegistrationForm } from '@/components/public/public-team-registration-form';
 import { submitPublicIndividualRegistrationAction } from './actions';
 
 export default async function PublicEventDetailPage({
@@ -296,10 +297,12 @@ export default async function PublicEventDetailPage({
                       )}
 
                     {event.registrationType === 'TEAM' && user?.role !== 'AMBASSADOR' && (
-                      <p className="text-sm text-[var(--color-text-muted)]">
-                        This event requires team registration. Public team registration will be
-                        enabled in the team-registration implementation chunk.
-                      </p>
+                      <PublicTeamRegistrationForm
+                        eventId={event.id}
+                        universities={publicUniversityOptions}
+                        minTeamSize={event.minTeamSize ?? 2}
+                        maxTeamSize={event.maxTeamSize ?? 4}
+                      />
                     )}
 
                     {user?.role === 'AMBASSADOR' && (
