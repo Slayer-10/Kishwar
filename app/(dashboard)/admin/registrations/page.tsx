@@ -1,6 +1,9 @@
 import React from 'react';
 import { prisma } from '@/lib/prisma';
-import { StatusBadge } from '@/components/ui/StatusBadge';
+import {
+  AdminRegistrationFilters,
+  type AdminRegistrationRow,
+} from '@/components/dashboard/AdminRegistrationFilters';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,10 +12,79 @@ export default async function AdminRegistrationsPage() {
     include: {
       event: true,
       participant: true,
-      team: { include: { captain: true, university: true } },
+      team: {
+        include: {
+          captain: true,
+          university: true,
+          ambassador: {
+            include: {
+              user: {
+                include: {
+                  participant: true,
+                },
+              },
+            },
+          },
+        },
+      },
       invoice: true,
+      ambassador: {
+        include: {
+          user: {
+            include: {
+              participant: true,
+            },
+          },
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
+  });
+
+  const rows: AdminRegistrationRow[] = registrations.map((r) => {
+    const effectiveAmbassador = r.ambassador ?? r.team?.ambassador ?? null;
+    const effectiveAmbassadorId = r.ambassadorId ?? r.team?.ambassadorId ?? null;
+
+    let routeCategory: 'AMBASSADOR' | 'NO_AMBASSADOR' | 'UNKNOWN';
+    let ambassadorName: string | null = null;
+
+    if (effectiveAmbassadorId && effectiveAmbassador) {
+      routeCategory = 'AMBASSADOR';
+      ambassadorName =
+        effectiveAmbassador.user.participant?.fullName ??
+        effectiveAmbassador.user.email ??
+        (effectiveAmbassador.ambassadorCode ? `Code: ${effectiveAmbassador.ambassadorCode}` : null);
+    } else if (effectiveAmbassadorId) {
+      // Historical ID whose ambassador record was removed
+      routeCategory = 'UNKNOWN';
+      ambassadorName = null;
+    } else if (r.source === 'PUBLIC') {
+      // Confirmed to have no assigned Ambassador and follows the Admin-managed route
+      routeCategory = 'NO_AMBASSADOR';
+      ambassadorName = null;
+    } else {
+      // Legacy records whose attribution cannot be reliably determined
+      routeCategory = 'UNKNOWN';
+      ambassadorName = null;
+    }
+
+    const registrantName = r.team
+      ? `${r.team.name} (${r.team.captain.fullName}${r.team.university ? `, ${r.team.university.name}` : ''})`
+      : r.participant?.fullName ?? 'Unknown';
+
+    return {
+      id: r.id,
+      eventName: r.event.name,
+      registrantName,
+      type: r.team ? 'Team' : 'Individual',
+      status: r.status,
+      invoiceStatus: r.invoice?.status ?? null,
+      invoiceAmount: r.invoice ? r.invoice.amount.toString() : null,
+      registeredAt: r.createdAt.toISOString(),
+      ambassadorId: effectiveAmbassadorId,
+      ambassadorName,
+      routeCategory,
+    };
   });
 
   return (
@@ -35,69 +107,7 @@ export default async function AdminRegistrationsPage() {
         />
       </div>
 
-      <div className="w-full overflow-x-auto rounded-[var(--radius-md)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
-        <table className="w-full text-left border-collapse text-sm">
-          <thead>
-            <tr
-              style={{ backgroundColor: 'var(--color-secondary)', color: '#FFFFFF' }}
-              className="font-heading text-xs uppercase tracking-wider h-[48px]"
-            >
-              <th className="px-5 py-3 font-semibold">Event</th>
-              <th className="px-5 py-3 font-semibold">Registrant</th>
-              <th className="px-5 py-3 font-semibold">Type</th>
-              <th className="px-5 py-3 font-semibold">Status</th>
-              <th className="px-5 py-3 font-semibold">Invoice</th>
-              <th className="px-5 py-3 font-semibold">Registered</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--color-divider)]">
-            {registrations.map((r) => (
-              <tr
-                key={r.id}
-                className="h-[56px] transition-colors hover:bg-[rgba(106,172,220,0.08)]"
-              >
-                <td className="px-5 py-3 font-semibold text-[var(--color-text)]">{r.event.name}</td>
-                <td className="px-5 py-3 text-[var(--color-text)]">
-                  {r.participant?.fullName ?? r.team?.name ?? 'Unknown'}
-                  {r.team && (
-                    <span className="ml-1 text-xs text-[var(--color-text-muted)]">
-                      ({r.team.captain.fullName}
-                      {r.team.university ? `, ${r.team.university.name}` : ''})
-                    </span>
-                  )}
-                </td>
-                <td className="px-5 py-3 font-medium text-[var(--color-text-muted)]">
-                  {r.team ? 'Team' : 'Individual'}
-                </td>
-                <td className="px-5 py-3">
-                  <StatusBadge status={r.status} />
-                </td>
-                <td className="px-5 py-3 text-[var(--color-text)]">
-                  {r.invoice ? (
-                    <span className="flex items-center gap-2">
-                      <StatusBadge status={r.invoice.status} />
-                      <span className="text-xs font-semibold">PKR {r.invoice.amount.toString()}</span>
-                    </span>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className="px-5 py-3 text-[var(--color-text-muted)]">
-                  {new Date(r.createdAt).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
-
-            {registrations.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-5 py-8 text-center text-[var(--color-text-muted)]">
-                  No registrations yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <AdminRegistrationFilters registrations={rows} />
     </div>
   );
 }
