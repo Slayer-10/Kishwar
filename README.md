@@ -6,7 +6,7 @@ A registration and management system for the FAST-NUCES Multan mega event. Parti
 
 - [Muhammad Isa](https://github.com/m250526-del): Backend Developer (registration, invoicing and payment verification, admin dashboard), Homepage Design
 - [Mehrunnisa Shabbir](https://github.com/mehrunnisaa579-mehr): Backend Developer, Frontend Design
-- [Ali Zafar](https://github.com/Slayer-10): Frontend Developer, UI/UX Design
+- [Ali Zafar](https://github.com/Slayer-10): Backend Developer,Frontend Developer, UI/UX Design
 
 ## Features
 
