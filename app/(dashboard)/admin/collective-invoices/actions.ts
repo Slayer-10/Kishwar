@@ -116,12 +116,8 @@ export async function generateCollectiveInvoicesAction(
     formData.get('ambassadorId') ?? 'ALL'
   ).trim();
 
-  const selectedEventId = String(
-    formData.get('eventId') ?? 'ALL'
-  ).trim();
-
-  if (!selectedAmbassadorId || !selectedEventId) {
-    throw new Error('Select a valid billing scope.');
+  if (!selectedAmbassadorId) {
+    throw new Error('Select a valid Ambassador billing scope.');
   }
 
   if (selectedAmbassadorId !== 'ALL') {
@@ -138,222 +134,189 @@ export async function generateCollectiveInvoicesAction(
     }
   }
 
-  if (selectedEventId !== 'ALL') {
-    const event = await prisma.event.findUnique({
-      where: { id: selectedEventId },
-      select: { id: true },
-    });
-
-    if (!event) {
-      throw new Error('The selected event does not exist.');
-    }
-  }
-
   const batchScope = `BATCH-${randomUUID()}`;
 
-  const [tiers, eligible] = await Promise.all([
-    prisma.discountTier.findMany({
-      where: { isActive: true },
-      orderBy: { minimumRegistrations: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        minimumRegistrations: true,
-        discountPercent: true,
-      },
-    }),
+  const tiers = await prisma.discountTier.findMany({
+    where: { isActive: true },
+    orderBy: { minimumRegistrations: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      minimumRegistrations: true,
+      discountPercent: true,
+    },
+  });
 
-    prisma.registration.findMany({
-      where: {
-        ambassadorId:
-          selectedAmbassadorId === 'ALL'
-            ? { not: null }
-            : selectedAmbassadorId,
-        ...(selectedEventId !== 'ALL'
-          ? { eventId: selectedEventId }
-          : {}),
-        reviewStatus: 'APPROVED',
-        status: { not: 'REJECTED' },
-        collectiveInvoiceItem: null,
-        invoice: null,
-      },
-      select: {
-        id: true,
-        ambassadorId: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    }),
-  ]);
+  const ambassadors = await prisma.ambassador.findMany({
+    where: {
+      user: { isActive: true },
+      ...(selectedAmbassadorId === 'ALL'
+        ? {}
+        : { id: selectedAmbassadorId }),
+    },
+    select: { id: true },
+  });
 
-  if (eligible.length === 0) {
-    revalidatePath('/admin/collective-invoices');
-    return;
-  }
+  for (const { id: ambassadorId } of ambassadors) {
+    const createdInvoice = await prisma.$transaction(async (tx) => {
+      // Serialize regeneration for this Ambassador.
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`collective-invoice:${ambassadorId}`}, 0)
+        )
+      `;
 
-  const grouped = new Map<string, string[]>();
+      // Remove ONLY unpaid collective invoices for this Ambassador.
+      const oldPending = await tx.collectiveInvoice.findMany({
+        where: {
+          ambassadorId,
+          status: 'PENDING',
+        },
+        select: { id: true },
+      });
 
-  for (const registration of eligible) {
-    if (!registration.ambassadorId) continue;
+      const oldIds = oldPending.map((invoice) => invoice.id);
 
-    const ids = grouped.get(registration.ambassadorId) ?? [];
-    ids.push(registration.id);
-    grouped.set(registration.ambassadorId, ids);
-  }
+      if (oldIds.length > 0) {
+        await tx.collectiveInvoiceItem.deleteMany({
+          where: { collectiveInvoiceId: { in: oldIds } },
+        });
 
-  for (const [ambassadorId, registrationIds] of Array.from(grouped.entries())) {
-    try {
-      const createdInvoice = await prisma.$transaction(async (tx) => {
-        const fresh = await tx.registration.findMany({
+        await tx.collectiveInvoice.deleteMany({
           where: {
-            id: { in: registrationIds },
+            id: { in: oldIds },
             ambassadorId,
-            ...(selectedEventId !== 'ALL'
-              ? { eventId: selectedEventId }
-              : {}),
-            reviewStatus: 'APPROVED',
-            status: { not: 'REJECTED' },
-            collectiveInvoiceItem: null,
-            invoice: null,
-          },
-          select: {
-            id: true,
-            eventId: true,
-            event: { select: { registrationFee: true } },
-            accommodationFee: true,
-          },
-          orderBy: { createdAt: 'asc' },
-        });
-
-        if (fresh.length === 0) return null;
-
-        const subtotal = fresh.reduce(
-          (sum, registration) =>
-            sum +
-            Number(registration.event.registrationFee) +
-            Number(registration.accommodationFee ?? 0),
-          0
-        );
-
-        const tier = [...tiers]
-          .reverse()
-          .find((item) => fresh.length >= item.minimumRegistrations);
-
-        const discountPercent = Number(tier?.discountPercent ?? 0);
-        const discountAmount = Number(
-          ((subtotal * discountPercent) / 100).toFixed(2)
-        );
-        const totalAmount = Number(
-          (subtotal - discountAmount).toFixed(2)
-        );
-
-        const invoice = await tx.collectiveInvoice.create({
-          data: {
-            ambassadorId,
-            scopeKey: batchScope,
-            invoiceNumber: `KSH-COL-${randomUUID()
-              .slice(0, 12)
-              .toUpperCase()}`,
             status: 'PENDING',
-            subtotal,
-            discountPercent,
-            discountAmount,
-            totalAmount,
-            generatedById: admin.id,
-            eventId: selectedEventId === 'ALL' ? null : selectedEventId,
           },
         });
+      }
 
-        let itemTotal = 0;
+      // Rebuild from ALL events after releasing old invoice-item claims.
+      const registrations = await tx.registration.findMany({
+        where: {
+          ambassadorId,
+          reviewStatus: 'APPROVED',
+          status: { notIn: ['PAID', 'REJECTED'] },
+          invoice: null,
+          collectiveInvoiceItem: null,
+        },
+        select: {
+          id: true,
+          event: { select: { registrationFee: true } },
+          accommodationFee: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
 
-        const lineItems = fresh.map((registration) => {
-          const baseAmount =
-            Number(registration.event.registrationFee) +
-            Number(registration.accommodationFee ?? 0);
+      if (registrations.length === 0) {
+        return null;
+      }
 
-          const itemDiscount = Number(
-            ((baseAmount * discountPercent) / 100).toFixed(2)
-          );
+      const subtotal = registrations.reduce(
+        (sum, registration) =>
+          sum +
+          Number(registration.event.registrationFee) +
+          Number(registration.accommodationFee ?? 0),
+        0
+      );
 
-          const finalAmount = Number(
-            (baseAmount - itemDiscount).toFixed(2)
-          );
+      const tier = [...tiers]
+        .reverse()
+        .find((item) => registrations.length >= item.minimumRegistrations);
 
-          itemTotal += finalAmount;
+      const discountPercent = Number(tier?.discountPercent ?? 0);
+      const discountAmount = Number(
+        ((subtotal * discountPercent) / 100).toFixed(2)
+      );
+      const totalAmount = Number((subtotal - discountAmount).toFixed(2));
 
-          return {
-            registrationId: registration.id,
-            baseAmount,
-            discountAmount: itemDiscount,
-            finalAmount,
-          };
-        });
+      const invoice = await tx.collectiveInvoice.create({
+        data: {
+          ambassadorId,
+          scopeKey: batchScope,
+          invoiceNumber: `KSH-COL-${randomUUID()
+            .slice(0, 12)
+            .toUpperCase()}`,
+          status: 'PENDING',
+          subtotal,
+          discountPercent,
+          discountAmount,
+          totalAmount,
+          generatedById: admin.id,
+          eventId: null,
+        },
+      });
 
-        const roundingDifference = Number(
-          (totalAmount - itemTotal).toFixed(2)
+      const lineItems = registrations.map((registration) => {
+        const baseAmount =
+          Number(registration.event.registrationFee) +
+          Number(registration.accommodationFee ?? 0);
+
+        const itemDiscount = Number(
+          ((baseAmount * discountPercent) / 100).toFixed(2)
         );
-
-        if (roundingDifference !== 0 && lineItems.length > 0) {
-          const lastItem = lineItems[lineItems.length - 1];
-          lastItem.finalAmount = Number(
-            (lastItem.finalAmount + roundingDifference).toFixed(2)
-          );
-        }
-
-        await tx.collectiveInvoiceItem.createMany({
-          data: lineItems.map((item) => ({
-            collectiveInvoiceId: invoice.id,
-            registrationId: item.registrationId,
-            baseAmount: item.baseAmount,
-            discountAmount: item.discountAmount,
-            finalAmount: item.finalAmount,
-          })),
-        });
 
         return {
-          id: invoice.id,
-          invoiceNumber: invoice.invoiceNumber,
-          totalAmount,
+          collectiveInvoiceId: invoice.id,
+          registrationId: registration.id,
+          baseAmount,
+          discountAmount: itemDiscount,
+          finalAmount: Number((baseAmount - itemDiscount).toFixed(2)),
         };
       });
 
-      if (createdInvoice) {
-        try {
-          const ambassador = await prisma.ambassador.findUnique({
-            where: { id: ambassadorId },
-            select: { user: { select: { email: true } } },
+      const lineTotal = lineItems.reduce(
+        (sum, item) => sum + item.finalAmount,
+        0
+      );
+
+      const difference = Number((totalAmount - lineTotal).toFixed(2));
+
+      if (difference !== 0 && lineItems.length > 0) {
+        lineItems[lineItems.length - 1].finalAmount = Number(
+          (lineItems[lineItems.length - 1].finalAmount + difference).toFixed(2)
+        );
+      }
+
+      await tx.collectiveInvoiceItem.createMany({
+        data: lineItems,
+      });
+
+      return {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        totalAmount,
+      };
+    });
+
+    // Send notification only when a new invoice was created.
+    if (createdInvoice) {
+      try {
+        const ambassador = await prisma.ambassador.findUnique({
+          where: { id: ambassadorId },
+          select: { user: { select: { email: true } } },
+        });
+
+        const email = ambassador?.user.email;
+
+        if (email) {
+          await dispatchNotification({
+            event: 'invoice_generated',
+            recipientName: email,
+            recipientEmail: email,
+            subject: `Collective Invoice Generated - ${createdInvoice.invoiceNumber}`,
+            message:
+              `A collective invoice (${createdInvoice.invoiceNumber}) ` +
+              `for PKR ${createdInvoice.totalAmount.toFixed(2)} has been generated.`,
+            idempotencyKey: `inv_${createdInvoice.id}`,
           });
-
-          const email = ambassador?.user.email;
-
-          if (email) {
-            await dispatchNotification({
-              event: 'invoice_generated',
-              recipientName: email,
-              recipientEmail: email,
-              subject: `Collective Invoice Generated - ${createdInvoice.invoiceNumber}`,
-              message:
-                `A collective invoice (${createdInvoice.invoiceNumber}) ` +
-                `for PKR ${createdInvoice.totalAmount.toFixed(2)} has been generated.`,
-              idempotencyKey: `inv_${createdInvoice.id}`,
-            });
-          }
-        } catch (notificationError) {
-          console.error(
-            '[generateCollectiveInvoicesAction] Notification error:',
-            notificationError
-          );
         }
+      } catch (notificationError) {
+        console.error(
+          '[generateCollectiveInvoicesAction] Notification error:',
+          notificationError
+        );
       }
-    } catch (error: unknown) {
-      const prismaError = error as { code?: string };
-
-      if (prismaError?.code === 'P2002') {
-        // A competing billing request already claimed at least one registration.
-        // This transaction rolls back, so no duplicate invoice items are created.
-        continue;
-      }
-
-      throw error;
     }
   }
 
