@@ -31,6 +31,10 @@ export default async function AmbassadorParticipantsPage() {
     include: {
       event: { select: { name: true } },
       participant: true,
+      invoice: { select: { status: true } },
+      collectiveInvoiceItem: {
+        select: { id: true },
+      },
       team: {
         include: {
           captain: true,
@@ -95,6 +99,12 @@ export default async function AmbassadorParticipantsPage() {
       isTeam,
       displayName,
       status: reg.status,
+      reviewStatus: reg.reviewStatus,
+      invoiceType: reg.collectiveInvoiceItem
+        ? 'COLLECTIVE' as const
+        : reg.invoice
+          ? 'INDIVIDUAL' as const
+          : null,
       createdAt: reg.createdAt.toISOString(),
       members,
     };

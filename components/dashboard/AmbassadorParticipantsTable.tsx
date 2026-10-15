@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Users, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export type SerializedMember = {
   id: string;
@@ -19,6 +20,8 @@ export type SerializedRegistration = {
   isTeam: boolean;
   displayName: string;
   status: string;
+  reviewStatus: string;
+  invoiceType: 'INDIVIDUAL' | 'COLLECTIVE' | null;
   createdAt: string;
   members: SerializedMember[];
 };
@@ -54,6 +57,7 @@ export function AmbassadorParticipantsTable({ registrations }: AmbassadorPartici
               <th className="px-5 py-3 font-semibold">Event</th>
               <th className="px-5 py-3 font-semibold">Team / Participant</th>
               <th className="px-5 py-3 font-semibold">Type</th>
+              <th className="px-5 py-3 font-semibold">Status</th>
               <th className="px-5 py-3 font-semibold text-right">Details</th>
             </tr>
           </thead>
@@ -80,6 +84,13 @@ export function AmbassadorParticipantsTable({ registrations }: AmbassadorPartici
                           <User size={12} /> Solo
                         </span>
                       )}
+                    </td>
+                    <td className="px-5 py-3">
+                      <StatusBadge
+                        reviewStatus={reg.reviewStatus}
+                        paymentStatus={reg.status}
+                        invoiceType={reg.invoiceType}
+                      />
                     </td>
                     <td className="px-5 py-3 text-right">
                       <Button

@@ -28,6 +28,15 @@ export default async function AdminRegistrationsPage() {
         },
       },
       invoice: true,
+      collectiveInvoiceItem: {
+        include: {
+          collectiveInvoice: {
+            select: {
+              status: true,
+            },
+          },
+        },
+      },
       ambassador: {
         include: {
           user: {
@@ -78,6 +87,13 @@ export default async function AdminRegistrationsPage() {
       registrantName,
       type: r.team ? 'Team' : 'Individual',
       status: r.status,
+      reviewStatus: r.reviewStatus,
+      paymentStatus: r.status,
+      invoiceType: r.collectiveInvoiceItem
+        ? 'COLLECTIVE'
+        : r.invoice
+          ? 'INDIVIDUAL'
+          : null,
       invoiceStatus: r.invoice?.status ?? null,
       invoiceAmount: r.invoice ? r.invoice.amount.toString() : null,
       registeredAt: r.createdAt.toISOString(),

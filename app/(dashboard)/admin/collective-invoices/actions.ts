@@ -154,7 +154,7 @@ export async function generateCollectiveInvoicesAction(
         ? {}
         : { id: selectedAmbassadorId }),
     },
-    select: { id: true },
+    select: { id: true, userId: true },
   });
 
   for (const { id: ambassadorId } of ambassadors) {
@@ -192,7 +192,9 @@ export async function generateCollectiveInvoicesAction(
       }
 
       // Rebuild from ALL events after releasing old invoice-item claims.
-      const registrations = await tx.registration.findMany({
+      // Include both registrations attributed to this ambassador (via ambassadorId)
+      // and the ambassador's own participant registrations (via participant.userId).
+      const attributed = await tx.registration.findMany({
         where: {
           ambassadorId,
           reviewStatus: 'APPROVED',
@@ -207,6 +209,50 @@ export async function generateCollectiveInvoicesAction(
         },
         orderBy: { createdAt: 'asc' },
       });
+
+      // Fetch ambassador's own participant registrations if the ambassador
+      // has a user account that is also a participant (userId is non-null on Participant).
+      const { userId: ambassadorUserId } = ambassadors.find(
+        (a) => a.id === ambassadorId
+      )!;
+
+      const ownParticipant = ambassadorUserId
+        ? await tx.participant.findUnique({
+            where: { userId: ambassadorUserId },
+            select: { id: true },
+          })
+        : null;
+
+      const ownRegistrations =
+        ownParticipant
+          ? await tx.registration.findMany({
+              where: {
+                participantId: ownParticipant.id,
+                // Exclude records already captured by the ambassadorId filter.
+                ambassadorId: null,
+                reviewStatus: 'APPROVED',
+                status: { notIn: ['PAID', 'REJECTED'] },
+                invoice: null,
+                collectiveInvoiceItem: null,
+              },
+              select: {
+                id: true,
+                event: { select: { registrationFee: true } },
+                accommodationFee: true,
+              },
+              orderBy: { createdAt: 'asc' },
+            })
+          : [];
+
+      // Deduplicate by registration ID.
+      const seen = new Set<string>();
+      const registrations = [...attributed, ...ownRegistrations].filter(
+        (reg) => {
+          if (seen.has(reg.id)) return false;
+          seen.add(reg.id);
+          return true;
+        }
+      );
 
       if (registrations.length === 0) {
         return null;

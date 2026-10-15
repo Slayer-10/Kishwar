@@ -11,6 +11,9 @@ export type AdminRegistrationRow = {
   registrantName: string;
   type: string;
   status: string;
+  reviewStatus: string;
+  paymentStatus: string;
+  invoiceType: 'INDIVIDUAL' | 'COLLECTIVE' | null;
   invoiceStatus: string | null;
   invoiceAmount: string | null;
   registeredAt: string;
@@ -210,7 +213,11 @@ export function AdminRegistrationFilters({
                   </td>
 
                   <td className="px-5 py-3">
-                    <StatusBadge status={r.status as any} />
+                    <StatusBadge
+                    reviewStatus={r.reviewStatus}
+                    paymentStatus={r.paymentStatus}
+                    invoiceType={r.invoiceType}
+                  />
                   </td>
 
                   <td className="px-5 py-3 text-[var(--color-text)]">
