@@ -13,6 +13,11 @@ export type AdminRegistrationRow = {
   status: string;
   reviewStatus: string;
   paymentStatus: string;
+  hasIndividualInvoice: boolean;
+  individualInvoiceStatus: string | null;
+  hasCollectiveInvoice: boolean;
+  collectiveInvoiceStatus: string | null;
+  /** @deprecated kept for backward compat — use hasIndividualInvoice / hasCollectiveInvoice */
   invoiceType: 'INDIVIDUAL' | 'COLLECTIVE' | null;
   invoiceStatus: string | null;
   invoiceAmount: string | null;
@@ -214,10 +219,13 @@ export function AdminRegistrationFilters({
 
                   <td className="px-5 py-3">
                     <StatusBadge
-                    reviewStatus={r.reviewStatus}
-                    paymentStatus={r.paymentStatus}
-                    invoiceType={r.invoiceType}
-                  />
+                      reviewStatus={r.reviewStatus}
+                      paymentStatus={r.paymentStatus}
+                      hasIndividualInvoice={r.hasIndividualInvoice}
+                      individualInvoiceStatus={r.individualInvoiceStatus}
+                      hasCollectiveInvoice={r.hasCollectiveInvoice}
+                      collectiveInvoiceStatus={r.collectiveInvoiceStatus}
+                    />
                   </td>
 
                   <td className="px-5 py-3 text-[var(--color-text)]">

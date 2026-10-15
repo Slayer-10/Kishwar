@@ -21,6 +21,11 @@ export type SerializedRegistration = {
   displayName: string;
   status: string;
   reviewStatus: string;
+  hasIndividualInvoice: boolean;
+  individualInvoiceStatus: string | null;
+  hasCollectiveInvoice: boolean;
+  collectiveInvoiceStatus: string | null;
+  /** @deprecated use hasCollectiveInvoice / hasIndividualInvoice */
   invoiceType: 'INDIVIDUAL' | 'COLLECTIVE' | null;
   createdAt: string;
   members: SerializedMember[];
@@ -89,7 +94,10 @@ export function AmbassadorParticipantsTable({ registrations }: AmbassadorPartici
                       <StatusBadge
                         reviewStatus={reg.reviewStatus}
                         paymentStatus={reg.status}
-                        invoiceType={reg.invoiceType}
+                        hasIndividualInvoice={reg.hasIndividualInvoice}
+                        individualInvoiceStatus={reg.individualInvoiceStatus}
+                        hasCollectiveInvoice={reg.hasCollectiveInvoice}
+                        collectiveInvoiceStatus={reg.collectiveInvoiceStatus}
                       />
                     </td>
                     <td className="px-5 py-3 text-right">

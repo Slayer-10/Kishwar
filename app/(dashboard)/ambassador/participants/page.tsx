@@ -33,7 +33,10 @@ export default async function AmbassadorParticipantsPage() {
       participant: true,
       invoice: { select: { status: true } },
       collectiveInvoiceItem: {
-        select: { id: true },
+        select: {
+          id: true,
+          collectiveInvoice: { select: { status: true } },
+        },
       },
       team: {
         include: {
@@ -100,6 +103,11 @@ export default async function AmbassadorParticipantsPage() {
       displayName,
       status: reg.status,
       reviewStatus: reg.reviewStatus,
+      hasIndividualInvoice: Boolean(reg.invoice),
+      individualInvoiceStatus: reg.invoice?.status ?? null,
+      hasCollectiveInvoice: Boolean(reg.collectiveInvoiceItem),
+      collectiveInvoiceStatus:
+        reg.collectiveInvoiceItem?.collectiveInvoice?.status ?? null,
       invoiceType: reg.collectiveInvoiceItem
         ? 'COLLECTIVE' as const
         : reg.invoice

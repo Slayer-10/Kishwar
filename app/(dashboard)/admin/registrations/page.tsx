@@ -89,6 +89,11 @@ export default async function AdminRegistrationsPage() {
       status: r.status,
       reviewStatus: r.reviewStatus,
       paymentStatus: r.status,
+      hasIndividualInvoice: Boolean(r.invoice),
+      individualInvoiceStatus: r.invoice?.status ?? null,
+      hasCollectiveInvoice: Boolean(r.collectiveInvoiceItem),
+      collectiveInvoiceStatus:
+        r.collectiveInvoiceItem?.collectiveInvoice?.status ?? null,
       invoiceType: r.collectiveInvoiceItem
         ? 'COLLECTIVE'
         : r.invoice
