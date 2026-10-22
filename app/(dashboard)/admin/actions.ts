@@ -769,9 +769,6 @@ export async function approveAmbassadorRequestAction(
   }
 
   const applicantEmail = (request.participant?.email ?? request.email ?? '').toLowerCase().trim();
-  const applicantName = request.participant?.fullName ?? request.fullName ?? 'Ambassador User';
-  const applicantPhone = request.participant?.phone ?? request.phone ?? null;
-  const applicantCnic = request.participant?.cnic ?? request.cnic ?? null;
 
   if (!applicantEmail) {
     return { error: 'Applicant email is required for approval.' };
@@ -856,47 +853,41 @@ export async function approveAmbassadorRequestAction(
   }
 
   try {
-    let participant = await prisma.participant.findUnique({
+    // Link an existing Participant record to this account if one can be found.
+    // Do NOT create a Participant; an Ambassador does not require one.
+    let existingParticipantId: string | null = null;
+
+    const participantByUserId = await prisma.participant.findUnique({
       where: { userId: targetUserId },
+      select: { id: true, universityId: true },
     });
 
-    if (!participant && request.participantId) {
-      participant = await prisma.participant.findUnique({
+    if (participantByUserId) {
+      existingParticipantId = participantByUserId.id;
+      // Backfill universityId if missing.
+      if (!participantByUserId.universityId) {
+        await prisma.participant.update({
+          where: { id: participantByUserId.id },
+          data: { universityId },
+        });
+      }
+    } else if (request.participantId) {
+      const participantByRequestId = await prisma.participant.findUnique({
         where: { id: request.participantId },
+        select: { id: true, universityId: true },
       });
+      if (participantByRequestId) {
+        existingParticipantId = participantByRequestId.id;
+        // Link and backfill universityId.
+        await prisma.participant.update({
+          where: { id: participantByRequestId.id },
+          data: {
+            userId: targetUserId,
+            universityId: participantByRequestId.universityId ?? universityId,
+          },
+        });
+      }
     }
-
-    if (!participant) {
-      participant = await prisma.participant.findUnique({
-        where: { email: applicantEmail },
-      });
-    }
-
-    if (participant) {
-      participant = await prisma.participant.update({
-        where: { id: participant.id },
-        data: {
-          userId: targetUserId,
-          universityId: participant.universityId ?? universityId,
-        },
-      });
-    } else {
-      participant = await prisma.participant.create({
-        data: {
-          userId: targetUserId,
-          fullName: applicantName,
-          email: applicantEmail,
-          phone: applicantPhone,
-          cnic: applicantCnic,
-          universityId,
-        },
-      });
-    }
-
-    await prisma.participant.updateMany({
-      where: { userId: targetUserId, universityId: null },
-      data: { universityId },
-    });
 
     await prisma.$transaction([
       prisma.user.update({
@@ -915,7 +906,7 @@ export async function approveAmbassadorRequestAction(
         where: { id: request.id },
         data: {
           status: 'APPROVED',
-          participantId: participant.id,
+          participantId: existingParticipantId,
           reviewedById: admin.id,
           reviewedAt: new Date(),
         },

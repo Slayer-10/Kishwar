@@ -175,27 +175,20 @@ class ApprovalEngineMock {
         existingPrismaUser.isActive = true;
       }
 
-      let participant: MockParticipant | undefined;
+      // Link an existing Participant only — never create one.
+      let existingParticipantId: string | null = null;
       for (const p of Array.from(this.participants.values())) {
-        if (p.userId === targetUserId || p.email === applicantEmail) {
-          participant = p;
+        if (p.userId === targetUserId) {
+          existingParticipantId = p.id;
           break;
         }
       }
-
-      if (participant) {
-        participant.userId = targetUserId;
-        participant.universityId = participant.universityId ?? universityId;
-      } else {
-        const pId = `part_${Date.now()}`;
-        participant = {
-          id: pId,
-          userId: targetUserId,
-          email: applicantEmail,
-          fullName: request.fullName,
-          universityId,
-        };
-        this.participants.set(pId, participant);
+      if (!existingParticipantId && request.participantId) {
+        const byId = this.participants.get(request.participantId);
+        if (byId) {
+          existingParticipantId = byId.id;
+          byId.userId = targetUserId;
+        }
       }
 
       const ambId = `amb_${Date.now()}`;
@@ -210,6 +203,7 @@ class ApprovalEngineMock {
       request.status = 'APPROVED';
       request.reviewedById = params.adminUser.id;
       request.reviewedAt = new Date();
+      request.participantId = existingParticipantId ?? undefined;
     } catch (err: any) {
       if (newlyCreatedAuthUserId) {
         this.authUsers.delete(newlyCreatedAuthUserId);
@@ -669,6 +663,127 @@ async function runAmbassadorApprovalTests() {
   results.push({
     name: 'Failure Handling: Database failure rolls back newly created Auth user to prevent orphaned accounts',
     passed: engineFail.authDeletedIds.length === 1,
+  });
+
+  // --- 10. Approval does NOT create a Participant when none exists ---
+  const engineNoParticipant = new ApprovalEngineMock();
+  engineNoParticipant.requests.set('req_no_part', {
+    id: 'req_no_part',
+    status: 'PENDING',
+    email: 'nopart@fast.edu.pk',
+    fullName: 'No Participant User',
+    universityId: 'uni_nopart',
+  });
+
+  const resNoParticipant = await engineNoParticipant.approveRequest({
+    adminUser: superAdmin,
+    requestId: 'req_no_part',
+    universityId: 'uni_nopart',
+    ambassadorCode: 'AMB-NOPART-01',
+    password: 'ValidPassword123',
+  });
+
+  results.push({
+    name: 'No-Participant Approval: Succeeds and returns credentials when no Participant record exists',
+    passed: Boolean(resNoParticipant.credentials && !resNoParticipant.error),
+  });
+
+  results.push({
+    name: 'No-Participant Approval: Ambassador record is created without a linked Participant',
+    passed: (() => {
+      const amb = Array.from(engineNoParticipant.ambassadors.values()).find(
+        (a) => a.ambassadorCode === 'AMB-NOPART-01'
+      );
+      const req = engineNoParticipant.requests.get('req_no_part');
+      return Boolean(amb && req?.status === 'APPROVED' && !req.participantId);
+    })(),
+  });
+
+  results.push({
+    name: 'No-Participant Approval: No Participant record was created as a side-effect',
+    passed: engineNoParticipant.participants.size === 0,
+  });
+
+  // --- 11. requireAmbassador equivalent: approval does not create Participant in shared auth helper ---
+  // Simulate an ambassador-only user (no participant) calling requireAmbassador logic.
+  const engineAmbOnly = new ApprovalEngineMock();
+  const ambassadorOnlyUserId = 'user_amb_only';
+  engineAmbOnly.authUsers.set(ambassadorOnlyUserId, {
+    id: ambassadorOnlyUserId,
+    email: 'ambonly@fast.edu.pk',
+    password: 'HasPassword123',
+  });
+  engineAmbOnly.prismaUsers.set(ambassadorOnlyUserId, {
+    id: ambassadorOnlyUserId,
+    email: 'ambonly@fast.edu.pk',
+    role: 'AMBASSADOR',
+    isActive: true,
+  });
+  const ambassadorOnlyAmbId = 'amb_only_001';
+  engineAmbOnly.ambassadors.set(ambassadorOnlyAmbId, {
+    id: ambassadorOnlyAmbId,
+    userId: ambassadorOnlyUserId,
+    universityId: 'uni_fast2',
+    ambassadorCode: 'AMB-FAST-02',
+  });
+
+  // Verify that no Participant exists for this ambassador-only user.
+  const participantForAmbOnly = Array.from(engineAmbOnly.participants.values()).find(
+    (p) => p.userId === ambassadorOnlyUserId
+  );
+  results.push({
+    name: 'Ambassador-Only User: No Participant record exists after ambassador account exists',
+    passed: !participantForAmbOnly,
+  });
+
+  // --- 12. Existing Participant is linked (not duplicated) during approval ---
+  const engineWithExistingPart = new ApprovalEngineMock();
+  const existingPartUserId = 'user_has_part';
+  const existingPartId = 'part_existing_001';
+  engineWithExistingPart.authUsers.set(existingPartUserId, {
+    id: existingPartUserId,
+    email: 'haspart@nust.edu.pk',
+    password: 'ExistingPass123',
+  });
+  engineWithExistingPart.prismaUsers.set(existingPartUserId, {
+    id: existingPartUserId,
+    email: 'haspart@nust.edu.pk',
+    role: 'PARTICIPANT',
+    isActive: true,
+  });
+  engineWithExistingPart.participants.set(existingPartId, {
+    id: existingPartId,
+    userId: existingPartUserId,
+    email: 'haspart@nust.edu.pk',
+    fullName: 'Has Participant User',
+    universityId: 'uni_nust2',
+  });
+  engineWithExistingPart.requests.set('req_has_part', {
+    id: 'req_has_part',
+    status: 'PENDING',
+    email: 'haspart@nust.edu.pk',
+    fullName: 'Has Participant User',
+    universityId: 'uni_nust2',
+  });
+
+  const resWithPart = await engineWithExistingPart.approveRequest({
+    adminUser: superAdmin,
+    requestId: 'req_has_part',
+    universityId: 'uni_nust2',
+    ambassadorCode: 'AMB-NUST-02',
+    password: 'NewPass1234567',
+  });
+
+  results.push({
+    name: 'Existing-Participant Approval: Existing Participant record is preserved (not duplicated)',
+    passed: (() => {
+      const req = engineWithExistingPart.requests.get('req_has_part');
+      return (
+        !resWithPart.error &&
+        engineWithExistingPart.participants.size === 1 && // still exactly 1 participant
+        req?.status === 'APPROVED'
+      );
+    })(),
   });
 
   const allPassed = printTestSummary(results);

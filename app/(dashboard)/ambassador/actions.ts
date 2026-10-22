@@ -147,24 +147,7 @@ async function requireAmbassador() {
     redirect('/login');
   }
 
-  const ambassador = user.ambassador;
-
-  if (!user.participant) {
-    const participant = await prisma.participant.create({
-      data: {
-        userId: user.id,
-        fullName: user.email.split('@')[0],
-        email: user.email,
-      },
-    });
-    return { ...user, participant, ambassador };
-  }
-
-  return {
-    ...user,
-    participant: user.participant,
-    ambassador,
-  };
+  return user;
 }
 
 export async function registerParticipantAction(
@@ -175,7 +158,7 @@ export async function registerParticipantAction(
 
   try {
     const user = await requireAmbassador();
-    const ambassador = user.ambassador;
+    const ambassador = user.ambassador!;
 
     const eventId = textValue(formData, 'eventId');
     const fullName = textValue(formData, 'fullName');
@@ -353,7 +336,7 @@ export async function registerTeamAction(
 
   try {
     const user = await requireAmbassador();
-    const ambassador = user.ambassador;
+    const ambassador = user.ambassador!;
 
     const eventId = textValue(formData, 'eventId');
     const teamName = textValue(formData, 'teamName');
@@ -631,8 +614,9 @@ export async function registerSelfAction(
 
   try {
     const user = await requireAmbassador();
-    const ambassador = user.ambassador;
-    const participant = user.participant;
+    const ambassador = user.ambassador!;
+
+    let participant = user.participant;
 
     const eventId = textValue(formData, 'eventId');
     const participantCnic = textValue(formData, 'participantCnic');
@@ -650,6 +634,97 @@ export async function registerSelfAction(
       'Your Student ID'
     );
 
+    // Resolve or create the Ambassador's personal Participant profile.
+    // This is the only action that does so, and only when explicitly registering
+    // the Ambassador as a personal event participant.
+    if (!participant) {
+      // Look up by userId first (most authoritative), then by email.
+      const existingByUserId = await prisma.participant.findUnique({
+        where: { userId: user.id },
+      });
+
+      if (existingByUserId) {
+        // Verify the CNIC does not conflict with an established identity.
+        if (
+          existingByUserId.normalizedCnic &&
+          existingByUserId.normalizedCnic !== normalizedCnic
+        ) {
+          throw new Error(
+            'The entered CNIC does not match your existing participant profile.'
+          );
+        }
+
+        participant = await prisma.participant.update({
+          where: { id: existingByUserId.id },
+          data: {
+            cnic: participantCnic,
+            normalizedCnic,
+            universityId: ambassador.universityId,
+          },
+        });
+      } else {
+        // Check whether a Participant with the same CNIC is already linked to
+        // a different account. Linking across accounts is not permitted here.
+        const existingByCnic = normalizedCnic
+          ? await prisma.participant.findFirst({
+              where: { normalizedCnic },
+            })
+          : null;
+
+        if (existingByCnic) {
+          if (existingByCnic.userId && existingByCnic.userId !== user.id) {
+            throw new Error(
+              'This CNIC is already registered to another account. Please contact an administrator.'
+            );
+          }
+
+          // Unlinked participant with same CNIC — claim it for this account.
+          if (existingByCnic.email !== user.email) {
+            // Email mismatch: do not silently merge accounts based on CNIC alone.
+            throw new Error(
+              'A participant profile with this CNIC exists under a different email. Please contact an administrator.'
+            );
+          }
+
+          participant = await prisma.participant.update({
+            where: { id: existingByCnic.id },
+            data: {
+              userId: user.id,
+              cnic: participantCnic,
+              normalizedCnic,
+              universityId: ambassador.universityId,
+            },
+          });
+        } else {
+          // No existing profile found — create one for this explicit registration.
+          participant = await prisma.participant.create({
+            data: {
+              userId: user.id,
+              // The self-registration form does not collect a full name.
+              // Use the email prefix as a placeholder; the profile can be
+              // updated by the ambassador after registration.
+              fullName: user.email.split('@')[0],
+              email: user.email,
+              cnic: participantCnic,
+              normalizedCnic,
+              universityId: ambassador.universityId,
+            },
+          });
+        }
+      }
+    } else {
+      // Participant already exists — update CNIC and ensure university is set.
+      participant = await prisma.participant.update({
+        where: { id: participant.id },
+        data: {
+          cnic: participantCnic,
+          normalizedCnic,
+          universityId: ambassador.universityId,
+        },
+      });
+    }
+
+    // Validate the event before uploading evidence.
     const event = await prisma.event.findUnique({
       where: { id: eventId },
     });
@@ -669,16 +744,6 @@ export async function registerSelfAction(
     if (event.registrationType === 'TEAM') {
       throw new Error('This event only accepts team registration.');
     }
-
-    // Update Ambassador participant CNIC
-    await prisma.participant.update({
-      where: { id: participant.id },
-      data: {
-        cnic: participantCnic,
-        normalizedCnic,
-        universityId: ambassador.universityId,
-      },
-    });
 
     // Upload Student ID
     const supabase = await ensurePrivateEvidenceBucket();
@@ -780,7 +845,7 @@ export async function submitBatchPaymentAction(formData: FormData) {
   const fail = (message: string): never =>
     redirect(`/ambassador/payments?error=${encodeURIComponent(message)}`);
 
-  const ambassador = user.ambassador;
+  const ambassador = user.ambassador!;
 
   const invoiceIds = Array.from(
     new Set(
@@ -844,7 +909,7 @@ export async function submitCampusPaymentAction(formData: FormData) {
   const fail = (message: string): never =>
     redirect(`/ambassador/payments?error=${encodeURIComponent(message)}`);
 
-  const ambassador = user.ambassador;
+  const ambassador = user.ambassador!;
 
   const method = String(formData.get('method') ?? '').trim();
   const referenceNumber = String(formData.get('referenceNumber') ?? '').trim();

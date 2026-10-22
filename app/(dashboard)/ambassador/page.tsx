@@ -68,36 +68,38 @@ export default async function AmbassadorHomePage() {
       },
     }),
 
-    prisma.registration.findMany({
-      where: {
-        OR: [
-          { participantId: user!.participant!.id },
-          { team: { captainId: user!.participant!.id } },
-          { team: { members: { some: { participantId: user!.participant!.id } } } },
-        ],
-      },
-      include: {
-        event: true,
-        ambassador: {
-          include: {
-            user: true,
-            university: true,
+    user!.participant
+      ? prisma.registration.findMany({
+          where: {
+            OR: [
+              { participantId: user!.participant.id },
+              { team: { captainId: user!.participant.id } },
+              { team: { members: { some: { participantId: user!.participant.id } } } },
+            ],
           },
-        },
-        invoice: {
           include: {
-            payments: {
-              orderBy: {
-                createdAt: 'desc',
+            event: true,
+            ambassador: {
+              include: {
+                user: true,
+                university: true,
+              },
+            },
+            invoice: {
+              include: {
+                payments: {
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                },
               },
             },
           },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    }),
+          orderBy: {
+            createdAt: 'desc',
+          },
+        })
+      : Promise.resolve([]),
 
     prisma.event.findMany({
       where: {
