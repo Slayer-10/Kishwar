@@ -645,6 +645,21 @@ export async function rejectCollectiveInvoicePaymentAction(invoiceId: string): P
   }
 }
 
+/**
+ * Form-compatible Server Action for rejecting collective invoice payment proof.
+ * The invoice ID is bound by the Admin page; FormData is supplied by the form.
+ */
+export async function rejectCollectiveInvoicePaymentFormAction(
+  invoiceId: string,
+  _formData: FormData
+): Promise<void> {
+  const result = await rejectCollectiveInvoicePaymentAction(invoiceId);
+
+  if (!result.success) {
+    throw new Error(result.message);
+  }
+}
+
 export async function getCollectiveInvoiceItemsAction(
   collectiveInvoiceId: string
 ) {
