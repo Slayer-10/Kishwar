@@ -5,6 +5,7 @@ import {
   createDiscountTierAction,
   updateDiscountTierAction,
   generateCollectiveInvoicesAction,
+  rejectCollectiveInvoicePaymentAction,
 } from './actions';
 import { CollectiveInvoiceItemsDetails } from '@/components/dashboard/CollectiveInvoiceItemsDetails';
 import { ConfirmPaymentButton } from '@/components/dashboard/ConfirmPaymentButton';
@@ -55,6 +56,17 @@ export default async function CollectiveInvoicesPage() {
             ambassadorCode: true,
             user: { select: { email: true } },
             university: { select: { name: true } },
+          },
+        },
+        paymentSubmission: {
+          select: {
+            id: true,
+            totalAmount: true,
+            method: true,
+            referenceNumber: true,
+            proofUrl: true,
+            verificationStatus: true,
+            createdAt: true,
           },
         },
         _count: { select: { items: true } },
@@ -216,6 +228,7 @@ export default async function CollectiveInvoicesPage() {
           Each Ambassador receives one consolidated invoice for all eligible,
           approved, unpaid registrations across every event. Regeneration replaces
           that Ambassador&apos;s unpaid collective invoice and recalculates the full balance.
+          Invoices with a submitted payment proof are <strong>not replaced</strong> during regeneration.
         </p>
 
         <form
@@ -269,91 +282,175 @@ export default async function CollectiveInvoicesPage() {
           </p>
         ) : (
           <div className="space-y-3">
-            {invoices.map((invoice) => (
-              <details key={invoice.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <summary className="cursor-pointer font-medium text-gray-900 flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    <span className="font-bold text-indigo-700">{invoice.invoiceNumber}</span>
-                    {' — '}
-                    {invoice.ambassador.university.name}
-                    {' — '}
-                    All events
-                  </span>
-                  <div className="flex items-center space-x-3 text-xs">
-                    <span
-                      className={`px-2 py-0.5 rounded font-semibold ${
-                        invoice.status === 'PAID'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-blue-50 text-blue-700 border border-blue-200'
-                      }`}
-                    >
-                      {invoice.status}
+            {invoices.map((invoice) => {
+              const proof = invoice.paymentSubmission;
+              const proofStatus = proof?.verificationStatus ?? null;
+
+              return (
+                <details key={invoice.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <summary className="cursor-pointer font-medium text-gray-900 flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      <span className="font-bold text-indigo-700">{invoice.invoiceNumber}</span>
+                      {' — '}
+                      {invoice.ambassador.university.name}
+                      {' — '}
+                      All events
                     </span>
-                    <span className="font-bold text-gray-900 text-sm">
-                      {currency(invoice.totalAmount)}
-                    </span>
-                  </div>
-                </summary>
-
-                <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-3 bg-gray-50 p-4 rounded-lg border border-gray-100">
-                  <div>
-                    <dt className="text-gray-500 font-medium">Ambassador Code</dt>
-                    <dd className="font-bold text-gray-800">{invoice.ambassador.ambassadorCode}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 font-medium">Ambassador Email</dt>
-                    <dd className="font-semibold text-gray-800">{invoice.ambassador.user.email}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 font-medium">Included Registrations</dt>
-                    <dd className="font-bold text-gray-800">{invoice._count.items} registration(s)</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 font-medium">Subtotal</dt>
-                    <dd className="font-semibold text-gray-800">{currency(invoice.subtotal)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 font-medium">Applied Discount</dt>
-                    <dd className="font-semibold text-green-700">
-                      {Number(invoice.discountPercent)}% ({currency(invoice.discountAmount)})
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 font-medium">Final Amount</dt>
-                    <dd className="font-bold text-gray-900 text-sm">
-                      {currency(invoice.totalAmount)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 font-medium">Billing Batch</dt>
-                    <dd className="font-mono text-gray-600">{invoice.scopeKey}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 font-medium">Created Date</dt>
-                    <dd className="text-gray-700">{new Date(invoice.createdAt).toLocaleString()}</dd>
-                  </div>
-                  {invoice.paidAt && (
-                    <div>
-                      <dt className="text-gray-500 font-medium">Payment Confirmed Date</dt>
-                      <dd className="text-emerald-700 font-semibold">{new Date(invoice.paidAt).toLocaleString()}</dd>
+                    <div className="flex items-center space-x-3 text-xs">
+                      <span
+                        className={`px-2 py-0.5 rounded font-semibold ${
+                          invoice.status === 'PAID'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-blue-50 text-blue-700 border border-blue-200'
+                        }`}
+                      >
+                        {invoice.status}
+                      </span>
+                      <span className="font-bold text-gray-900 text-sm">
+                        {currency(invoice.totalAmount)}
+                      </span>
                     </div>
-                  )}
-                  {invoice.paidConfirmedBy?.email && (
+                  </summary>
+
+                  <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-3 bg-gray-50 p-4 rounded-lg border border-gray-100">
                     <div>
-                      <dt className="text-gray-500 font-medium">Confirmed By Admin</dt>
-                      <dd className="text-gray-800 font-medium">{invoice.paidConfirmedBy.email}</dd>
+                      <dt className="text-gray-500 font-medium">Ambassador Code</dt>
+                      <dd className="font-bold text-gray-800">{invoice.ambassador.ambassadorCode}</dd>
                     </div>
-                  )}
-                </dl>
+                    <div>
+                      <dt className="text-gray-500 font-medium">Ambassador Email</dt>
+                      <dd className="font-semibold text-gray-800">{invoice.ambassador.user.email}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 font-medium">Included Registrations</dt>
+                      <dd className="font-bold text-gray-800">{invoice._count.items} registration(s)</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 font-medium">Subtotal</dt>
+                      <dd className="font-semibold text-gray-800">{currency(invoice.subtotal)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 font-medium">Applied Discount</dt>
+                      <dd className="font-semibold text-green-700">
+                        {Number(invoice.discountPercent)}% ({currency(invoice.discountAmount)})
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 font-medium">Final Amount</dt>
+                      <dd className="font-bold text-gray-900 text-sm">
+                        {currency(invoice.totalAmount)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 font-medium">Billing Batch</dt>
+                      <dd className="font-mono text-gray-600">{invoice.scopeKey}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 font-medium">Created Date</dt>
+                      <dd className="text-gray-700">{new Date(invoice.createdAt).toLocaleString()}</dd>
+                    </div>
+                    {invoice.paidAt && (
+                      <div>
+                        <dt className="text-gray-500 font-medium">Payment Confirmed Date</dt>
+                        <dd className="text-emerald-700 font-semibold">{new Date(invoice.paidAt).toLocaleString()}</dd>
+                      </div>
+                    )}
+                    {invoice.paidConfirmedBy?.email && (
+                      <div>
+                        <dt className="text-gray-500 font-medium">Confirmed By Admin</dt>
+                        <dd className="text-gray-800 font-medium">{invoice.paidConfirmedBy.email}</dd>
+                      </div>
+                    )}
+                  </dl>
 
-                <div className="mt-4 flex items-center justify-between border-t pt-3">
-                  <span className="text-xs text-gray-500 font-medium">Payment Action:</span>
-                  <ConfirmPaymentButton invoiceId={invoice.id} alreadyPaid={invoice.status === 'PAID'} />
-                </div>
+                  {/* ── Payment Submission Section ─────────────────────────── */}
+                  <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+                    <p className="text-xs font-bold uppercase text-gray-500 mb-2 tracking-wide">
+                      Payment Submission
+                    </p>
 
-                <CollectiveInvoiceItemsDetails invoiceId={invoice.id} />
-              </details>
-            ))}
+                    {!proof && (
+                      <p className="text-gray-500 italic">
+                        Awaiting Ambassador payment submission.
+                      </p>
+                    )}
+
+                    {proof && proofStatus === 'SUBMITTED' && (
+                      <div className="flex flex-col gap-1">
+                        <p className="font-semibold text-amber-800">
+                          Proof submitted — awaiting Admin review
+                        </p>
+                        <p className="text-gray-600 text-xs">
+                          Method: {proof.method}
+                          {proof.referenceNumber ? ` · Ref: ${proof.referenceNumber}` : ''}
+                          {' · '}
+                          {currency(proof.totalAmount)}
+                          {' · '}
+                          {new Date(proof.createdAt).toLocaleString()}
+                        </p>
+                        {proof.proofUrl && (
+                          <a
+                            href={proof.proofUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-600 hover:underline font-semibold text-xs mt-1"
+                          >
+                            View Payment Proof ↗
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {proof && proofStatus === 'REJECTED' && (
+                      <p className="text-red-700 font-semibold italic">
+                        Proof rejected — awaiting resubmission from Ambassador.
+                      </p>
+                    )}
+
+                    {proof && proofStatus === 'VERIFIED' && (
+                      <p className="text-emerald-700 font-semibold">
+                        ✓ Payment verified.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* ── Payment Actions ────────────────────────────────────── */}
+                  <div className="mt-4 flex flex-wrap items-center gap-3 border-t pt-3">
+                    <span className="text-xs text-gray-500 font-medium">Payment Action:</span>
+
+                    {/* Confirm is only shown and enabled when proof is SUBMITTED */}
+                    <ConfirmPaymentButton
+                      invoiceId={invoice.id}
+                      alreadyPaid={invoice.status === 'PAID'}
+                      disabled={proofStatus !== 'SUBMITTED'}
+                      disabledReason={
+                        !proof
+                          ? 'No proof submitted yet'
+                          : proofStatus === 'REJECTED'
+                          ? 'Proof was rejected'
+                          : proofStatus === 'VERIFIED'
+                          ? 'Already verified'
+                          : undefined
+                      }
+                    />
+
+                    {/* Reject proof — only shown when proof is SUBMITTED */}
+                    {proofStatus === 'SUBMITTED' && (
+                      <form action={async () => { await rejectCollectiveInvoicePaymentAction(invoice.id); }}>
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                        >
+                          Reject Proof
+                        </button>
+                      </form>
+                    )}
+                  </div>
+
+                  <CollectiveInvoiceItemsDetails invoiceId={invoice.id} />
+                </details>
+              );
+            })}
           </div>
         )}
       </section>

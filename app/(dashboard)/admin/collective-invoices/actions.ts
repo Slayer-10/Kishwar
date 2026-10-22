@@ -166,7 +166,27 @@ export async function generateCollectiveInvoicesAction(
         )
       `;
 
+      // ── PROTECTION: do not replace an invoice while proof is under review ──
+      const protectedInvoice = await tx.collectiveInvoice.findFirst({
+        where: {
+          ambassadorId,
+          status: 'PENDING',
+          paymentSubmission: {
+            is: { verificationStatus: { in: ['SUBMITTED', 'VERIFIED'] } },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (protectedInvoice) {
+        // A proof is waiting for Admin review — skip regeneration for this
+        // Ambassador to preserve the invoice, items, and submitted screenshot.
+        return null;
+      }
+
       // Remove ONLY unpaid collective invoices for this Ambassador.
+      // Invoices whose rejected proof is linked will have it cascade-deleted
+      // via CampusPayment.onDelete: Cascade.
       const oldPending = await tx.collectiveInvoice.findMany({
         where: {
           ambassadorId,
@@ -370,6 +390,7 @@ export async function generateCollectiveInvoicesAction(
   revalidatePath('/admin/registration-requests');
   revalidatePath('/admin/registrations');
   revalidatePath('/ambassador');
+  revalidatePath('/ambassador/payments');
 }
 
 export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
@@ -392,6 +413,7 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
               registration: true,
             },
           },
+          paymentSubmission: true,
         },
       });
 
@@ -407,7 +429,30 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
         throw new Error('INVOICE_HAS_NO_ITEMS');
       }
 
-      // Validate every item before making changes
+      // Require a submitted proof before Admin can confirm.
+      const submission = invoice.paymentSubmission;
+
+      if (!submission) {
+        throw new Error('NO_PROOF_SUBMITTED');
+      }
+
+      if (submission.verificationStatus === 'REJECTED') {
+        throw new Error('PROOF_REJECTED');
+      }
+
+      if (submission.verificationStatus !== 'SUBMITTED') {
+        throw new Error('PROOF_NOT_SUBMITTED');
+      }
+
+      // Amount sanity check.
+      if (
+        Number(submission.totalAmount).toFixed(2) !==
+        Number(invoice.totalAmount).toFixed(2)
+      ) {
+        throw new Error('AMOUNT_MISMATCH');
+      }
+
+      // Validate every item before making changes.
       for (const item of invoice.items) {
         const registration = item.registration;
 
@@ -430,7 +475,7 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
 
       const now = new Date();
 
-      // Mark invoice as PAID and set paidConfirmedById
+      // Mark invoice as PAID and set paidConfirmedById.
       const updatedInvoice = await tx.collectiveInvoice.updateMany({
         where: {
           id: invoiceId,
@@ -447,7 +492,16 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
         throw new Error('INVOICE_STATUS_CHANGED');
       }
 
-      // Update attached registrations to PAID status
+      // Update the linked CampusPayment to VERIFIED inside the same transaction.
+      await tx.campusPayment.update({
+        where: { collectiveInvoiceId: invoiceId },
+        data: {
+          verificationStatus: 'VERIFIED',
+          verifiedBy: admin.id,
+        },
+      });
+
+      // Update attached registrations to PAID status.
       for (const item of invoice.items) {
         await tx.registration.update({
           where: {
@@ -470,9 +524,11 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
     revalidatePath('/admin/collective-invoices');
     revalidatePath('/admin/registration-requests');
     revalidatePath('/admin/registrations');
+    revalidatePath('/admin/payments');
     revalidatePath('/ambassador');
+    revalidatePath('/ambassador/payments');
 
-    // Trigger notification after transaction succeeds
+    // Trigger notification after transaction succeeds.
     try {
       const updatedInv = await prisma.collectiveInvoice.findUnique({
         where: { id: invoiceId },
@@ -509,6 +565,14 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
       INVOICE_NOT_FOUND: 'Invoice not found.',
       INVOICE_ALREADY_PAID: 'This invoice has already been paid.',
       INVOICE_HAS_NO_ITEMS: 'This invoice has no registrations.',
+      NO_PROOF_SUBMITTED:
+        'No payment proof has been submitted for this invoice. The Ambassador must submit proof before you can confirm.',
+      PROOF_REJECTED:
+        'The submitted payment proof was rejected. The Ambassador must resubmit before you can confirm.',
+      PROOF_NOT_SUBMITTED:
+        'The payment proof is not in a submittable state. Check the payment submission status.',
+      AMOUNT_MISMATCH:
+        'The submitted payment amount does not match the invoice total. Review the payment submission before confirming.',
       REGISTRATION_NOT_FOUND:
         'A registration linked to this invoice could not be found.',
       INVOICE_CONTAINS_INELIGIBLE_REGISTRATION:
@@ -527,6 +591,59 @@ export async function confirmCollectiveInvoicePaymentAction(invoiceId: string) {
 }
 
 export const confirmCollectiveInvoicePayment = confirmCollectiveInvoicePaymentAction;
+
+/**
+ * Admin rejects a submitted collective-invoice payment proof.
+ * The invoice and registrations remain PENDING; the Ambassador can resubmit.
+ */
+export async function rejectCollectiveInvoicePaymentAction(invoiceId: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  await requireSuperAdmin();
+
+  if (!invoiceId || typeof invoiceId !== 'string') {
+    return { success: false, message: 'A valid invoice ID is required.' };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const invoice = await tx.collectiveInvoice.findUnique({
+        where: { id: invoiceId },
+        include: { paymentSubmission: true },
+      });
+
+      if (!invoice) throw new Error('INVOICE_NOT_FOUND');
+      if (invoice.status !== 'PENDING') throw new Error('INVOICE_NOT_PENDING');
+
+      const submission = invoice.paymentSubmission;
+      if (!submission) throw new Error('NO_PROOF_SUBMITTED');
+      if (submission.verificationStatus !== 'SUBMITTED') {
+        throw new Error('PROOF_NOT_SUBMITTED');
+      }
+
+      await tx.campusPayment.update({
+        where: { collectiveInvoiceId: invoiceId },
+        data: { verificationStatus: 'REJECTED' },
+      });
+    });
+
+    revalidatePath('/admin/collective-invoices');
+    revalidatePath('/admin/payments');
+    revalidatePath('/ambassador/payments');
+
+    return { success: true, message: 'Payment proof rejected. The Ambassador can resubmit.' };
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+    const messages: Record<string, string> = {
+      INVOICE_NOT_FOUND: 'Invoice not found.',
+      INVOICE_NOT_PENDING: 'Only PENDING invoices can have their proof rejected.',
+      NO_PROOF_SUBMITTED: 'No payment proof has been submitted.',
+      PROOF_NOT_SUBMITTED: 'The proof is not currently in a submitted state.',
+    };
+    return { success: false, message: messages[code] ?? 'Unable to reject payment proof.' };
+  }
+}
 
 export async function getCollectiveInvoiceItemsAction(
   collectiveInvoiceId: string
@@ -588,4 +705,3 @@ export async function getCollectiveInvoiceItemsAction(
     finalAmount: Number(item.finalAmount),
   }));
 }
-

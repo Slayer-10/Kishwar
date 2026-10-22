@@ -7,9 +7,18 @@ import { confirmCollectiveInvoicePaymentAction } from '@/app/(dashboard)/admin/c
 type Props = {
   invoiceId: string;
   alreadyPaid: boolean;
+  /** When true, the button is rendered disabled regardless of loading state. */
+  disabled?: boolean;
+  /** Shown below the disabled button to explain why confirmation is blocked. */
+  disabledReason?: string;
 };
 
-export function ConfirmPaymentButton({ invoiceId, alreadyPaid }: Props) {
+export function ConfirmPaymentButton({
+  invoiceId,
+  alreadyPaid,
+  disabled = false,
+  disabledReason,
+}: Props) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState('');
   const router = useRouter();
@@ -42,16 +51,25 @@ export function ConfirmPaymentButton({ invoiceId, alreadyPaid }: Props) {
     );
   }
 
+  const isDisabled = disabled || isPending;
+
   return (
     <div className="space-y-1">
       <button
         type="button"
         onClick={handleConfirm}
-        disabled={isPending}
-        className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm"
+        disabled={isDisabled}
+        title={disabled && disabledReason ? disabledReason : undefined}
+        className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
       >
         {isPending ? 'Confirming...' : 'Confirm Payment'}
       </button>
+
+      {disabled && disabledReason && (
+        <p className="text-[11px] text-amber-700 font-medium">
+          ⚠ {disabledReason}
+        </p>
+      )}
 
       {message ? (
         <p role="status" className="text-[11px] font-medium text-gray-700 mt-1">
@@ -61,3 +79,4 @@ export function ConfirmPaymentButton({ invoiceId, alreadyPaid }: Props) {
     </div>
   );
 }
+

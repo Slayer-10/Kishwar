@@ -383,9 +383,10 @@ model CollectiveInvoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items   CollectiveInvoiceItem[]
-  Event   Event?                  @relation(fields: [eventId], references: [id])
-  eventId String?
+  items             CollectiveInvoiceItem[]
+  paymentSubmission CampusPayment?
+  Event             Event?                  @relation(fields: [eventId], references: [id])
+  eventId           String?
 
   @@unique([ambassadorId, scopeKey])
   @@index([ambassadorId, status])
@@ -437,10 +438,14 @@ model CampusPayment {
   verifier           User?                     @relation("CampusPaymentVerifiedBy", fields: [verifiedBy], references: [id])
   createdAt          DateTime                  @default(now())
 
+  collectiveInvoiceId String?            @unique
+  collectiveInvoice   CollectiveInvoice? @relation(fields: [collectiveInvoiceId], references: [id], onDelete: Cascade)
+
   invoices Invoice[]
 
   @@index([ambassadorId])
   @@index([verificationStatus])
+  @@index([collectiveInvoiceId])
 }
 
 model Payment {

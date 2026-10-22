@@ -30,6 +30,7 @@ export default async function AdminPaymentsPage() {
     }),
 
     prisma.campusPayment.findMany({
+      where: { collectiveInvoiceId: null },
       orderBy: { createdAt: 'desc' },
       include: {
         ambassador: {

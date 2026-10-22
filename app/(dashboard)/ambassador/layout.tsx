@@ -10,7 +10,7 @@ const NAV_ITEMS = [
   { label: 'Registration Requests', href: '/ambassador/requests' },
   { label: 'Participants', href: '/ambassador/participants' },
   { label: 'My Registrations', href: '/ambassador/my-registrations' },
-  { label: 'Campus Payments', href: '/ambassador/payments' },
+  { label: 'Collective Invoices', href: '/ambassador/payments' },
   { label: 'My Tickets', href: '/ambassador/tickets' },
 ];
 

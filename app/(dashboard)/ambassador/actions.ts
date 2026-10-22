@@ -967,3 +967,104 @@ export async function submitCampusPaymentAction(formData: FormData) {
 
   redirect('/ambassador/payments');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Collective Invoice Payment Submission
+// Reuses the existing CampusPayment table via the new collectiveInvoiceId
+// relation. No new payment-metadata fields are introduced.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function submitCollectiveInvoicePaymentAction(formData: FormData) {
+  const user = await requireAmbassador();
+  const ambassador = user.ambassador!;
+
+  const fail = (message: string): never =>
+    redirect(`/ambassador/payments?error=${encodeURIComponent(message)}`);
+
+  const invoiceId = String(formData.get('collectiveInvoiceId') ?? '').trim();
+  const method = String(formData.get('method') ?? '').trim();
+  const referenceNumber = String(formData.get('referenceNumber') ?? '').trim() || null;
+  const proofUrl = String(formData.get('proofUrl') ?? '').trim();
+
+  if (!invoiceId) fail('Select a valid collective invoice.');
+  if (!method) fail('Payment method is required.');
+  if (!proofUrl) fail('Paste the payment screenshot/proof link before submitting.');
+
+  // Validate URL format. Use a try/catch so validatedProofUrl is definitely assigned.
+  let validatedProofUrl = '';
+  try {
+    const parsed = new URL(proofUrl);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      fail('The screenshot/proof URL must use HTTP or HTTPS.');
+    }
+    validatedProofUrl = parsed.href;
+  } catch {
+    fail('Enter a valid screenshot/proof URL (e.g. https://drive.google.com/...).');
+  }
+
+  // Use txError to surface validation failures from inside the transaction
+  // without calling redirect() inside a Prisma callback.
+  let txError: string | null = null;
+
+  await prisma.$transaction(async (tx) => {
+    // Serialize simultaneous submissions for the same invoice.
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${`collective-payment:${invoiceId}`}, 0)
+      )
+    `;
+
+    const invoice = await tx.collectiveInvoice.findFirst({
+      where: { id: invoiceId, ambassadorId: ambassador.id },
+      include: {
+        items: { select: { id: true } },
+        paymentSubmission: true,
+      },
+    });
+
+    if (!invoice) { txError = 'Collective invoice not found.'; return; }
+    if (invoice.status === 'PAID') { txError = 'This collective invoice is already paid.'; return; }
+    if (invoice.items.length === 0) { txError = 'This invoice has no registrations.'; return; }
+
+    const existing = invoice.paymentSubmission;
+    if (existing?.verificationStatus === 'SUBMITTED') {
+      txError = 'Your payment proof is already submitted and awaiting Admin review.';
+      return;
+    }
+    if (existing?.verificationStatus === 'VERIFIED') {
+      txError = 'Payment has already been verified for this invoice.';
+      return;
+    }
+
+    await tx.campusPayment.upsert({
+      where: { collectiveInvoiceId: invoice.id },
+      create: {
+        ambassadorId: ambassador.id,
+        collectiveInvoiceId: invoice.id,
+        totalAmount: invoice.totalAmount,
+        method,
+        referenceNumber,
+        proofUrl: validatedProofUrl,
+        verificationStatus: 'SUBMITTED',
+      },
+      update: {
+        // This branch handles a previously rejected submission only.
+        totalAmount: invoice.totalAmount,
+        method,
+        referenceNumber,
+        proofUrl: validatedProofUrl,
+        verificationStatus: 'SUBMITTED',
+        verifiedBy: null,
+      },
+    });
+  });
+
+  if (txError) fail(txError);
+
+  revalidatePath('/ambassador/payments');
+  revalidatePath('/ambassador');
+  revalidatePath('/admin/collective-invoices');
+  revalidatePath('/admin/payments');
+
+  redirect('/ambassador/payments?submitted=1');
+}
